@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use brdf::{CompositeBrdf, LambertianBrdf, PhongSpecularBrdf};
+use brdf::{CompositeBrdf, LambertianBrdf, PerfectReflectionBrdf, PhongSpecularBrdf};
 use glam::{DMat3, DVec3, EulerRot};
 use image::{Rgb32FImage, RgbImage};
 use objects::{Material, Object, RayHit, Sphere};
@@ -14,72 +14,89 @@ mod brdf;
 mod objects;
 mod random;
 
+type Spectrum = DVec3;
+
 fn main() {
-    let base_mat = Material {
-        albedo: DVec3::splat(0.5),
-        emission: DVec3::ZERO,
-        brdf: Arc::new(CompositeBrdf {
-            a_weight: 0.5,
-            a: PhongSpecularBrdf { power: 50.0 },
-            b: LambertianBrdf,
-        }),
-    };
     let objects = [
         Box::new(Sphere {
             origin: DVec3::new(0.0, 0.0, 0.0),
             radius: 0.5,
             material: Material {
                 emission: DVec3::splat(10.0),
-                ..base_mat.clone()
+                brdf: Arc::new(LambertianBrdf {
+                    albedo: Spectrum::splat(0.5),
+                }),
             },
         }) as Box<dyn Object + Sync>,
         Box::new(Sphere {
             origin: DVec3::new(-2.0, -1.0, 0.0),
             radius: 1.0,
             material: Material {
-                albedo: DVec3::new(1.0, 0.25, 0.25),
-                ..base_mat.clone()
+                emission: Spectrum::ZERO,
+                brdf: Arc::new(CompositeBrdf {
+                    a_weight: 0.05,
+                    a: PhongSpecularBrdf {
+                        albedo: Spectrum::splat(1.0),
+                        power: 50.0,
+                    },
+                    b: LambertianBrdf {
+                        albedo: Spectrum::new(1.0, 0.25, 0.25),
+                    },
+                }),
             },
         }),
         Box::new(Sphere {
             origin: DVec3::new(2.0, -1.0, 0.0),
             radius: 1.0,
             material: Material {
-                albedo: DVec3::new(0.25, 1.0, 0.25),
-                ..base_mat.clone()
+                emission: Spectrum::ZERO,
+                brdf: Arc::new(CompositeBrdf {
+                    a_weight: 0.2,
+                    a: PerfectReflectionBrdf {
+                        albedo: Spectrum::ONE,
+                    },
+                    b: LambertianBrdf {
+                        albedo: Spectrum::new(0.25, 1.0, 0.25),
+                    }
+                }),
             },
         }),
         Box::new(Sphere {
             origin: DVec3::new(0.0, -102.0, 0.0),
             radius: 100.0,
-            material: base_mat.clone(),
+            material: Material {
+                emission: Spectrum::ZERO,
+                brdf: Arc::new(CompositeBrdf {
+                    a_weight: 0.05,
+                    a: PhongSpecularBrdf {
+                        albedo: Spectrum::splat(1.0),
+                        power: 50.0,
+                    },
+                    b: LambertianBrdf {
+                        albedo: Spectrum::new(0.5, 0.5, 0.5),
+                    },
+                }),
+            },
         }),
         Box::new(Sphere {
             origin: DVec3::new(0.0, 102.0, 0.0),
             radius: 100.0,
             material: Material {
-                albedo: DVec3::new(0.25, 0.25, 1.0),
-                brdf: Arc::new(LambertianBrdf),
-                ..base_mat.clone()
+                emission: Spectrum::ZERO,
+                brdf: Arc::new(LambertianBrdf {
+                    albedo: DVec3::new(0.25, 0.25, 1.0),
+                }),
             },
         }),
-        // Box::new(Sphere {
-        //     origin: DVec3::new(-300.0, 300.0, -300.0),
-        //     radius: 10.0,
-        //     material: Material {
-        //         emission: DVec3::splat(500.0),
-        //         ..base_mat.clone()
-        //     },
-        // }) as Box<dyn Object + Sync>,
     ];
 
-    const N: usize = 100;
-    const S: u32 = 1000;
+    const N: usize = 50;
+    const S: u32 = 10000;
     for i in 0..1 {
         let t = Instant::now();
         let yaw = i as f64 / N as f64 * PI * 2.0;
         let looking = DMat3::from_euler(EulerRot::YXZ, yaw, 0.0, 0.0);
-        let camera = looking * DVec3::Z * 5.0;
+        let camera = looking * DVec3::Z * 5.0 + 0.25 * DVec3::Y;
         let (img, conf, var) = render(853, 480, S, &objects, camera, looking);
         let d = t.elapsed();
         let efficiency = 1.0 / (var * d.as_secs_f64());
@@ -162,10 +179,7 @@ fn path_trace(objs: &[Box<dyn Object + Sync>], pos: DVec3, dir: DVec3) -> DVec3 
             .material
             .brdf
             .sample(dir, hit.normal, thread_rng().gen());
-        light_color *= hit.material.albedo
-            * hit.material.brdf.f(sample.dir, dir, hit.normal)
-            * sample.dir.dot(hit.normal).max(0.0)
-            / sample.pdf;
+        light_color *= sample.f * sample.dir.dot(hit.normal).max(0.0) / sample.pdf;
 
         pos += dir * hit.t;
         dir = sample.dir;

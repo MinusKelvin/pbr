@@ -3,6 +3,7 @@ use std::sync::Arc;
 use glam::DVec3;
 
 use crate::brdf::Brdf;
+use crate::Spectrum;
 
 pub struct RayHit<'a> {
     pub t: f64,
@@ -12,8 +13,7 @@ pub struct RayHit<'a> {
 
 #[derive(Clone)]
 pub struct Material {
-    pub albedo: DVec3,
-    pub emission: DVec3,
+    pub emission: Spectrum,
     pub brdf: Arc<dyn Brdf + Send + Sync>,
 }
 

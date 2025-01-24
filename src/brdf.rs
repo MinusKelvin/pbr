@@ -2,11 +2,12 @@ use std::f64::consts::PI;
 
 use glam::{DVec2, DVec3, FloatExt, Vec3Swizzles};
 
-use crate::random;
+use crate::{random, Spectrum};
 
 pub struct BrdfSample {
     pub dir: DVec3,
     pub pdf: f64,
+    pub f: Spectrum,
 }
 
 pub trait Brdf {
@@ -18,7 +19,7 @@ pub trait Brdf {
     ///
     /// This function should be *energy conserving*: for all `outgoing`, the integral of
     /// `f(incoming, outgoing) * cos(theta)` wrt `incoming` over the sphere should be <= 1.
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64;
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum;
 
     /// Samples an incoming light direction from a distribution approximating [`Bsdf::f`], given
     /// canonical random variables on `[0, 1)`.
@@ -40,7 +41,8 @@ pub trait Brdf {
 
         BrdfSample {
             dir: incoming,
-            pdf: incoming.dot(normal) / PI,
+            pdf: self.pdf(incoming, outgoing, normal),
+            f: self.f(incoming, outgoing, normal),
         }
     }
 
@@ -57,25 +59,29 @@ pub trait Brdf {
     }
 }
 
-pub struct LambertianBrdf;
+pub struct LambertianBrdf {
+    pub albedo: Spectrum,
+}
 
 impl Brdf for LambertianBrdf {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
         _ = normal;
         _ = outgoing;
         _ = incoming;
-        1.0 / PI
+        self.albedo / PI
     }
 }
 
 pub struct PhongSpecularBrdf {
+    pub albedo: Spectrum,
     pub power: f64,
 }
 
 impl Brdf for PhongSpecularBrdf {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
         let reflect = outgoing.reflect(normal);
-        (self.power + 2.0) / (2.0 * PI) * incoming.dot(reflect).max(0.0).powf(self.power)
+        self.albedo * (self.power + 2.0) / (2.0 * PI)
+            * incoming.dot(reflect).max(0.0).powf(self.power)
     }
 
     fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
@@ -93,7 +99,8 @@ impl Brdf for PhongSpecularBrdf {
 
         BrdfSample {
             dir: incoming,
-            pdf: (self.power + 1.0) / (2.0 * PI) * incoming.dot(reflect).max(0.0).powf(self.power),
+            pdf: self.pdf(incoming, outgoing, normal),
+            f: self.f(incoming, outgoing, normal),
         }
     }
 
@@ -105,13 +112,15 @@ impl Brdf for PhongSpecularBrdf {
 
 pub struct PhongRetroBrdf {
     pub power: f64,
+    pub albedo: Spectrum,
 }
 
 impl Brdf for PhongRetroBrdf {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
         _ = normal;
         let retro = -outgoing;
-        (self.power + 2.0) / (2.0 * PI) * incoming.dot(retro).max(0.0).powf(self.power)
+        self.albedo * (self.power + 2.0) / (2.0 * PI)
+            * incoming.dot(retro).max(0.0).powf(self.power)
     }
 
     fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
@@ -129,7 +138,8 @@ impl Brdf for PhongRetroBrdf {
 
         BrdfSample {
             dir: incoming,
-            pdf: (self.power + 1.0) / (2.0 * PI) * incoming.dot(retro).max(0.0).powf(self.power),
+            pdf: self.pdf(incoming, outgoing, normal),
+            f: self.f(incoming, outgoing, normal),
         }
     }
 
@@ -140,6 +150,36 @@ impl Brdf for PhongRetroBrdf {
     }
 }
 
+pub struct PerfectReflectionBrdf {
+    pub albedo: Spectrum,
+}
+
+impl Brdf for PerfectReflectionBrdf {
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
+        _ = incoming;
+        _ = outgoing;
+        _ = normal;
+        Spectrum::ZERO
+    }
+
+    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
+        _ = random;
+        let incoming = outgoing.reflect(normal);
+        BrdfSample {
+            dir: incoming,
+            pdf: 1.0,
+            f: self.albedo / incoming.dot(normal),
+        }
+    }
+
+    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
+        _ = incoming;
+        _ = outgoing;
+        _ = normal;
+        0.0
+    }
+}
+
 pub struct CompositeBrdf<A, B> {
     pub a_weight: f64,
     pub a: A,
@@ -147,7 +187,7 @@ pub struct CompositeBrdf<A, B> {
 }
 
 impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
         let a = self.a.f(incoming, outgoing, normal);
         let b = self.b.f(incoming, outgoing, normal);
         a.lerp(b, self.a_weight)
@@ -161,6 +201,9 @@ impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
             sample.pdf = sample
                 .pdf
                 .lerp(self.b.pdf(sample.dir, outgoing, normal), self.a_weight);
+            sample.f = sample
+                .f
+                .lerp(self.b.f(sample.dir, outgoing, normal), self.a_weight);
             sample
         } else {
             let mut sample = self.b.sample(
@@ -172,6 +215,10 @@ impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
                 .a
                 .pdf(sample.dir, outgoing, normal)
                 .lerp(sample.pdf, self.a_weight);
+            sample.f = self
+                .a
+                .f(sample.dir, outgoing, normal)
+                .lerp(sample.f, self.a_weight);
             sample
         }
     }
