@@ -3,9 +3,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use brdf::{Brdf, CompositeBrdf, LambertianBrdf, PhongSpecularBrdf};
+use brdf::{CompositeBrdf, LambertianBrdf, PhongSpecularBrdf};
 use glam::{DMat3, DVec3, EulerRot};
-use image::{Rgb, Rgb32FImage, RgbImage};
+use image::{Rgb32FImage, RgbImage};
 use objects::{Material, Object, RayHit, Sphere};
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
@@ -74,8 +74,8 @@ fn main() {
     ];
 
     const N: usize = 100;
-    const S: u32 = 30000;
-    for i in 0..N {
+    const S: u32 = 1000;
+    for i in 0..1 {
         let t = Instant::now();
         let yaw = i as f64 / N as f64 * PI * 2.0;
         let looking = DMat3::from_euler(EulerRot::YXZ, yaw, 0.0, 0.0);
@@ -83,9 +83,9 @@ fn main() {
         let (img, conf, var) = render(853, 480, S, &objects, camera, looking);
         let d = t.elapsed();
         let efficiency = 1.0 / (var * d.as_secs_f64());
-        save_final(&img, format!("i/{i}.png"));
-        // save_final(&img, "img.png");
-        // save_final(&conf, "conf.png");
+        // save_final(&img, format!("i/{i}.png"));
+        save_final(&img, "img.png");
+        save_final(&conf, "conf.png");
         println!(
             "rendered frame {i} in {:.2?} ({:.2} samples/sec) with efficiency {efficiency}",
             d,
@@ -158,17 +158,17 @@ fn path_trace(objs: &[Box<dyn Object + Sync>], pos: DVec3, dir: DVec3) -> DVec3 
 
         color += light_color * hit.material.emission;
 
-        let new_dir = hit
+        let sample = hit
             .material
             .brdf
             .sample(dir, hit.normal, thread_rng().gen());
         light_color *= hit.material.albedo
-            * hit.material.brdf.f(new_dir, dir, hit.normal)
-            * new_dir.dot(hit.normal).max(0.0)
-            / hit.material.brdf.pdf(new_dir, dir, hit.normal);
+            * hit.material.brdf.f(sample.dir, dir, hit.normal)
+            * sample.dir.dot(hit.normal).max(0.0)
+            / sample.pdf;
 
         pos += dir * hit.t;
-        dir = new_dir;
+        dir = sample.dir;
 
         if light_color.max_element() < 0.5 {
             if thread_rng().gen_bool(0.5) {

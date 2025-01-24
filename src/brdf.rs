@@ -4,6 +4,11 @@ use glam::{DVec2, DVec3, FloatExt, Vec3Swizzles};
 
 use crate::random;
 
+pub struct BrdfSample {
+    pub dir: DVec3,
+    pub pdf: f64,
+}
+
 pub trait Brdf {
     /// Returns the amount of light reflected from the incoming direction to the outgoing
     /// direction.
@@ -25,13 +30,18 @@ pub trait Brdf {
     ///
     /// The default implementation samples the hemisphere with a cosine-weighted distribution,
     /// which effectively importance samples the `cos(theta)` term in the rendering equation.
-    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> DVec3 {
+    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
         _ = outgoing;
         let d = random::disk(random.xy());
         let z = (1.0 - d.length_squared()).sqrt();
         let tangent = normal.cross(outgoing).normalize();
         let bitangent = normal.cross(tangent);
-        d.x * tangent + d.y * bitangent + z * normal
+        let incoming = d.x * tangent + d.y * bitangent + z * normal;
+
+        BrdfSample {
+            dir: incoming,
+            pdf: incoming.dot(normal) / PI,
+        }
     }
 
     /// Returns the probability density of the distribution sampled by [`Bsdf::sample`].
@@ -68,7 +78,7 @@ impl Brdf for PhongSpecularBrdf {
         (self.power + 2.0) / (2.0 * PI) * incoming.dot(reflect).max(0.0).powf(self.power)
     }
 
-    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> DVec3 {
+    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
         let reflect = outgoing.reflect(normal);
 
         let z = random.x.powf(1.0 / (self.power + 1.0));
@@ -79,12 +89,54 @@ impl Brdf for PhongSpecularBrdf {
 
         let tangent = reflect.cross(normal).normalize();
         let bitangent = reflect.cross(tangent);
-        d.x * tangent + d.y * bitangent + z * reflect
+        let incoming = d.x * tangent + d.y * bitangent + z * reflect;
+
+        BrdfSample {
+            dir: incoming,
+            pdf: (self.power + 1.0) / (2.0 * PI) * incoming.dot(reflect).max(0.0).powf(self.power),
+        }
     }
 
     fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
         let reflect = outgoing.reflect(normal);
         (self.power + 1.0) / (2.0 * PI) * incoming.dot(reflect).max(0.0).powf(self.power)
+    }
+}
+
+pub struct PhongRetroBrdf {
+    pub power: f64,
+}
+
+impl Brdf for PhongRetroBrdf {
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
+        _ = normal;
+        let retro = -outgoing;
+        (self.power + 2.0) / (2.0 * PI) * incoming.dot(retro).max(0.0).powf(self.power)
+    }
+
+    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
+        let retro = -outgoing;
+
+        let z = random.x.powf(1.0 / (self.power + 1.0));
+        let angle = 2.0 * PI * random.y;
+        let (y, x) = angle.sin_cos();
+        let r = (1.0 - z * z).sqrt();
+        let d = DVec2::new(x, y) * r;
+
+        let tangent = retro.cross(normal).normalize();
+        let bitangent = retro.cross(tangent);
+        let incoming = d.x * tangent + d.y * bitangent + z * retro;
+
+        BrdfSample {
+            dir: incoming,
+            pdf: (self.power + 1.0) / (2.0 * PI) * incoming.dot(retro).max(0.0).powf(self.power),
+        }
+    }
+
+    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
+        _ = normal;
+        let retro = -outgoing;
+        (self.power + 1.0) / (2.0 * PI) * incoming.dot(retro).max(0.0).powf(self.power)
     }
 }
 
@@ -101,16 +153,26 @@ impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
         a.lerp(b, self.a_weight)
     }
 
-    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> DVec3 {
+    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
         if random.z < self.a_weight {
-            self.a
-                .sample(outgoing, normal, random.with_z(random.z / self.a_weight))
+            let mut sample =
+                self.a
+                    .sample(outgoing, normal, random.with_z(random.z / self.a_weight));
+            sample.pdf = sample
+                .pdf
+                .lerp(self.b.pdf(sample.dir, outgoing, normal), self.a_weight);
+            sample
         } else {
-            self.b.sample(
+            let mut sample = self.b.sample(
                 outgoing,
                 normal,
                 random.with_z((random.z - self.a_weight) / (1.0 - self.a_weight)),
-            )
+            );
+            sample.pdf = self
+                .a
+                .pdf(sample.dir, outgoing, normal)
+                .lerp(sample.pdf, self.a_weight);
+            sample
         }
     }
 
