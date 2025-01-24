@@ -190,7 +190,7 @@ impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
     fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
         let a = self.a.f(incoming, outgoing, normal);
         let b = self.b.f(incoming, outgoing, normal);
-        a.lerp(b, self.a_weight)
+        a.lerp(b, 1.0 - self.a_weight)
     }
 
     fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
@@ -200,10 +200,10 @@ impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
                     .sample(outgoing, normal, random.with_z(random.z / self.a_weight));
             sample.pdf = sample
                 .pdf
-                .lerp(self.b.pdf(sample.dir, outgoing, normal), self.a_weight);
+                .lerp(self.b.pdf(sample.dir, outgoing, normal), 1.0 - self.a_weight);
             sample.f = sample
                 .f
-                .lerp(self.b.f(sample.dir, outgoing, normal), self.a_weight);
+                .lerp(self.b.f(sample.dir, outgoing, normal), 1.0 - self.a_weight);
             sample
         } else {
             let mut sample = self.b.sample(
@@ -211,14 +211,12 @@ impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
                 normal,
                 random.with_z((random.z - self.a_weight) / (1.0 - self.a_weight)),
             );
-            sample.pdf = self
-                .a
-                .pdf(sample.dir, outgoing, normal)
-                .lerp(sample.pdf, self.a_weight);
-            sample.f = self
-                .a
-                .f(sample.dir, outgoing, normal)
-                .lerp(sample.f, self.a_weight);
+            sample.pdf = sample
+                .pdf
+                .lerp(self.a.pdf(sample.dir, outgoing, normal), self.a_weight);
+            sample.f = sample
+                .f
+                .lerp(self.a.f(sample.dir, outgoing, normal), self.a_weight);
             sample
         }
     }
@@ -226,6 +224,6 @@ impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
     fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
         let a = self.a.pdf(incoming, outgoing, normal);
         let b = self.b.pdf(incoming, outgoing, normal);
-        a.lerp(b, self.a_weight)
+        a.lerp(b, 1.0 - self.a_weight)
     }
 }

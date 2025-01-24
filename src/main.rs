@@ -6,7 +6,7 @@ use std::time::Instant;
 use brdf::{CompositeBrdf, LambertianBrdf, PerfectReflectionBrdf, PhongSpecularBrdf};
 use glam::{DMat3, DVec3, EulerRot};
 use image::{Rgb32FImage, RgbImage};
-use objects::{Material, Object, RayHit, Sphere};
+use objects::{Material, Object, Plane, RayHit, Sphere};
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 
@@ -19,10 +19,10 @@ type Spectrum = DVec3;
 fn main() {
     let objects = [
         Box::new(Sphere {
-            origin: DVec3::new(0.0, 0.0, 0.0),
+            origin: DVec3::new(0.0, 10.0, 2.0),
             radius: 0.5,
             material: Material {
-                emission: DVec3::splat(10.0),
+                emission: DVec3::splat(200.0),
                 brdf: Arc::new(LambertianBrdf {
                     albedo: Spectrum::splat(0.5),
                 }),
@@ -34,7 +34,7 @@ fn main() {
             material: Material {
                 emission: Spectrum::ZERO,
                 brdf: Arc::new(CompositeBrdf {
-                    a_weight: 0.05,
+                    a_weight: 0.1,
                     a: PhongSpecularBrdf {
                         albedo: Spectrum::splat(1.0),
                         power: 50.0,
@@ -51,26 +51,25 @@ fn main() {
             material: Material {
                 emission: Spectrum::ZERO,
                 brdf: Arc::new(CompositeBrdf {
-                    a_weight: 0.2,
+                    a_weight: 0.5,
                     a: PerfectReflectionBrdf {
                         albedo: Spectrum::ONE,
                     },
                     b: LambertianBrdf {
                         albedo: Spectrum::new(0.25, 1.0, 0.25),
-                    }
+                    },
                 }),
             },
         }),
-        Box::new(Sphere {
-            origin: DVec3::new(0.0, -102.0, 0.0),
-            radius: 100.0,
+        Box::new(Plane {
+            point: DVec3::new(0.0, -2.0, 0.0),
+            normal: DVec3::new(0.0, 1.0, 0.0),
             material: Material {
                 emission: Spectrum::ZERO,
                 brdf: Arc::new(CompositeBrdf {
-                    a_weight: 0.05,
-                    a: PhongSpecularBrdf {
-                        albedo: Spectrum::splat(1.0),
-                        power: 50.0,
+                    a_weight: 0.2,
+                    a: PerfectReflectionBrdf {
+                        albedo: Spectrum::ONE,
                     },
                     b: LambertianBrdf {
                         albedo: Spectrum::new(0.5, 0.5, 0.5),
@@ -79,8 +78,8 @@ fn main() {
             },
         }),
         Box::new(Sphere {
-            origin: DVec3::new(0.0, 102.0, 0.0),
-            radius: 100.0,
+            origin: DVec3::new(0.0, 0.0, -2.0),
+            radius: 2.0,
             material: Material {
                 emission: Spectrum::ZERO,
                 brdf: Arc::new(LambertianBrdf {
@@ -91,13 +90,13 @@ fn main() {
     ];
 
     const N: usize = 50;
-    const S: u32 = 10000;
+    const S: u32 = 100000;
     for i in 0..1 {
         let t = Instant::now();
         let yaw = i as f64 / N as f64 * PI * 2.0;
-        let looking = DMat3::from_euler(EulerRot::YXZ, yaw, 0.0, 0.0);
-        let camera = looking * DVec3::Z * 5.0 + 0.25 * DVec3::Y;
-        let (img, conf, var) = render(853, 480, S, &objects, camera, looking);
+        let looking = DMat3::from_euler(EulerRot::YXZ, yaw, -0.3, 0.0);
+        let camera = looking * DVec3::Z * 5.0;
+        let (img, conf, var) = render(480, 480, S, &objects, camera, looking);
         let d = t.elapsed();
         let efficiency = 1.0 / (var * d.as_secs_f64());
         // save_final(&img, format!("i/{i}.png"));

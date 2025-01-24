@@ -65,3 +65,25 @@ impl Object for Sphere {
         })
     }
 }
+
+pub struct Plane {
+    pub point: DVec3,
+    pub normal: DVec3,
+    pub material: Material,
+}
+
+impl Object for Plane {
+    fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
+        let o = origin.dot(self.normal);
+        let d = direction.dot(self.normal);
+        let p = self.point.dot(self.normal);
+
+        let t = (p - o) / d;
+
+        (t > 0.0).then_some(RayHit {
+            t,
+            normal: self.normal,
+            material: &self.material,
+        })
+    }
+}
