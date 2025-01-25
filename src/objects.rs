@@ -34,7 +34,7 @@ impl Object for Sphere {
         // radius^2 = sum_i (o[i] + t*d[i])^2
         // radius^2 = sum_i (o[i]^2 + 2*t*o[i]*d[i] + d[i]^2*t^2)
         // radius^2 = dot(o, o) + 2*dot(o, d)*t + dot(d, d)*t^2
-        // 0 = 1*t^2 + 2*sum(d)*t + dot(o, o)-radius^2
+        // 0 = 1*t^2 + 2*dot(o, d)*t + dot(o, o)-radius^2
         let a = 1.0;
         let b = 2.0 * origin.dot(direction);
         let c = origin.dot(origin) - self.radius * self.radius;
@@ -80,7 +80,7 @@ impl Object for Plane {
 
         let t = (p - o) / d;
 
-        (t > 0.0).then_some(RayHit {
+        (t > 0.00001).then_some(RayHit {
             t,
             normal: self.normal,
             material: &self.material,

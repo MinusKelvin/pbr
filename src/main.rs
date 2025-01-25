@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use brdf::{CompositeBrdf, LambertianBrdf, PerfectReflectionBrdf, PhongSpecularBrdf};
+use brdf::{CompositeBrdf, LambertianBrdf, PhongSpecularBrdf, SmoothConductorBrdf};
 use glam::{DMat3, DVec3, EulerRot};
 use image::{Rgb32FImage, RgbImage};
 use objects::{Material, Object, Plane, RayHit, Sphere};
@@ -18,16 +18,16 @@ type Spectrum = DVec3;
 
 fn main() {
     let objects = [
-        Box::new(Sphere {
-            origin: DVec3::new(0.0, 10.0, 2.0),
-            radius: 0.5,
-            material: Material {
-                emission: DVec3::splat(200.0),
-                brdf: Arc::new(LambertianBrdf {
-                    albedo: Spectrum::splat(0.5),
-                }),
-            },
-        }) as Box<dyn Object + Sync>,
+        // Box::new(Sphere {
+        //     origin: DVec3::new(0.0, 10.0, 2.0),
+        //     radius: 0.5,
+        //     material: Material {
+        //         emission: DVec3::splat(200.0),
+        //         brdf: Arc::new(LambertianBrdf {
+        //             albedo: Spectrum::splat(0.5),
+        //         }),
+        //     },
+        // }) as Box<dyn Object + Sync>,
         Box::new(Sphere {
             origin: DVec3::new(-2.0, -1.0, 0.0),
             radius: 1.0,
@@ -44,20 +44,16 @@ fn main() {
                     },
                 }),
             },
-        }),
+        }) as Box<dyn Object + Sync>,
         Box::new(Sphere {
             origin: DVec3::new(2.0, -1.0, 0.0),
             radius: 1.0,
             material: Material {
                 emission: Spectrum::ZERO,
-                brdf: Arc::new(CompositeBrdf {
-                    a_weight: 0.5,
-                    a: PerfectReflectionBrdf {
-                        albedo: Spectrum::ONE,
-                    },
-                    b: LambertianBrdf {
-                        albedo: Spectrum::new(0.25, 1.0, 0.25),
-                    },
+                brdf: Arc::new(SmoothConductorBrdf {
+                    albedo: Spectrum::ONE,
+                    ior_re: Spectrum::new(0.22568, 0.40325, 1.3319),
+                    ior_im: Spectrum::new(3.19190, 2.53290, 1.8693),
                 }),
             },
         }),
@@ -66,14 +62,8 @@ fn main() {
             normal: DVec3::new(0.0, 1.0, 0.0),
             material: Material {
                 emission: Spectrum::ZERO,
-                brdf: Arc::new(CompositeBrdf {
-                    a_weight: 0.2,
-                    a: PerfectReflectionBrdf {
-                        albedo: Spectrum::ONE,
-                    },
-                    b: LambertianBrdf {
-                        albedo: Spectrum::new(0.5, 0.5, 0.5),
-                    },
+                brdf: Arc::new(LambertianBrdf {
+                    albedo: DVec3::new(0.5, 0.5, 0.5),
                 }),
             },
         }),
@@ -90,7 +80,7 @@ fn main() {
     ];
 
     const N: usize = 50;
-    const S: u32 = 100000;
+    const S: u32 = 1000;
     for i in 0..1 {
         let t = Instant::now();
         let yaw = i as f64 / N as f64 * PI * 2.0;
@@ -169,6 +159,7 @@ fn path_trace(objs: &[Box<dyn Object + Sync>], pos: DVec3, dir: DVec3) -> DVec3 
 
     while light_color != DVec3::ZERO {
         let Some(hit) = raycast_scene(objs, pos, dir) else {
+            color += light_color * DVec3::splat(0.5);
             break;
         };
 

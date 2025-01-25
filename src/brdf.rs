@@ -1,6 +1,7 @@
 use std::f64::consts::PI;
 
 use glam::{DVec2, DVec3, FloatExt, Vec3Swizzles};
+use num::complex::Complex64;
 
 use crate::{random, Spectrum};
 
@@ -150,11 +151,13 @@ impl Brdf for PhongRetroBrdf {
     }
 }
 
-pub struct PerfectReflectionBrdf {
+pub struct SmoothConductorBrdf {
     pub albedo: Spectrum,
+    pub ior_re: Spectrum,
+    pub ior_im: Spectrum,
 }
 
-impl Brdf for PerfectReflectionBrdf {
+impl Brdf for SmoothConductorBrdf {
     fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
         _ = incoming;
         _ = outgoing;
@@ -165,10 +168,14 @@ impl Brdf for PerfectReflectionBrdf {
     fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
         _ = random;
         let incoming = outgoing.reflect(normal);
+        let cos_i = incoming.dot(normal);
+        let fresnel = map2(self.ior_re, self.ior_im, |re, im| {
+            fresnel_reflectance_complex(cos_i, Complex64::new(re, im))
+        });
         BrdfSample {
             dir: incoming,
             pdf: 1.0,
-            f: self.albedo / incoming.dot(normal),
+            f: self.albedo * fresnel / cos_i,
         }
     }
 
@@ -198,9 +205,10 @@ impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
             let mut sample =
                 self.a
                     .sample(outgoing, normal, random.with_z(random.z / self.a_weight));
-            sample.pdf = sample
-                .pdf
-                .lerp(self.b.pdf(sample.dir, outgoing, normal), 1.0 - self.a_weight);
+            sample.pdf = sample.pdf.lerp(
+                self.b.pdf(sample.dir, outgoing, normal),
+                1.0 - self.a_weight,
+            );
             sample.f = sample
                 .f
                 .lerp(self.b.f(sample.dir, outgoing, normal), 1.0 - self.a_weight);
@@ -226,4 +234,33 @@ impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
         let b = self.b.pdf(incoming, outgoing, normal);
         a.lerp(b, 1.0 - self.a_weight)
     }
+}
+
+fn fresnel_reflectance_real(cos_i: f64, rel_ior: f64) -> f64 {
+    let sin2_i = 1.0 - cos_i * cos_i;
+    let sin2_t = sin2_i / (rel_ior * rel_ior);
+    if sin2_t >= 1.0 {
+        return 1.0;
+    }
+    let cos_t = (1.0 - sin2_t).sqrt();
+
+    let r_par = (rel_ior * cos_i - cos_t) / (rel_ior * cos_i + cos_t);
+    let r_perp = (cos_i - rel_ior * cos_t) / (cos_i + rel_ior * cos_t);
+
+    (r_par * r_par + r_perp * r_perp) / 2.0
+}
+
+fn fresnel_reflectance_complex(cos_i: f64, rel_ior: Complex64) -> f64 {
+    let sin2_i = 1.0 - cos_i * cos_i;
+    let sin2_t = sin2_i / (rel_ior * rel_ior);
+    let cos_t = (1.0 - sin2_t).sqrt();
+
+    let r_par = (rel_ior * cos_i - cos_t) / (rel_ior * cos_i + cos_t);
+    let r_perp = (cos_i - rel_ior * cos_t) / (cos_i + rel_ior * cos_t);
+
+    (r_par.norm_sqr() + r_perp.norm_sqr()) / 2.0
+}
+
+fn map2(a: DVec3, b: DVec3, mut f: impl FnMut(f64, f64) -> f64) -> DVec3 {
+    DVec3::new(f(a.x, b.x), f(a.y, b.y), f(a.z, b.z))
 }
