@@ -6,7 +6,7 @@ use std::time::Instant;
 use brdf::{CompositeBrdf, LambertianBrdf, PhongSpecularBrdf, SmoothConductorBrdf};
 use glam::{DMat3, DVec3, EulerRot};
 use image::{Rgb32FImage, RgbImage};
-use objects::{Material, Object, Plane, RayHit, Sphere};
+use objects::{Material, Object, Plane, RayHit, Sphere, Triangle};
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 
@@ -77,10 +77,21 @@ fn main() {
                 }),
             },
         }),
+        Box::new(Triangle {
+            a: DVec3::new(-1.0, -1.0, 0.0),
+            b: DVec3::new(1.0, -1.0, 0.0),
+            c: DVec3::new(0.0, 1.0, 0.0),
+            material: Material {
+                emission: Spectrum::ZERO,
+                brdf: Arc::new(LambertianBrdf {
+                    albedo: DVec3::new(0.25, 1.0, 0.25),
+                }),
+            },
+        }),
     ];
 
-    const N: usize = 50;
-    const S: u32 = 1000;
+    const N: usize = 100;
+    const S: u32 = 100;
     for i in 0..1 {
         let t = Instant::now();
         let yaw = i as f64 / N as f64 * PI * 2.0;
@@ -163,6 +174,10 @@ fn path_trace(objs: &[Box<dyn Object + Sync>], pos: DVec3, dir: DVec3) -> DVec3 
             break;
         };
 
+        if hit.normal.dot(dir) > 0.0 {
+            break;
+        }
+
         color += light_color * hit.material.emission;
 
         let sample = hit
@@ -171,7 +186,7 @@ fn path_trace(objs: &[Box<dyn Object + Sync>], pos: DVec3, dir: DVec3) -> DVec3 
             .sample(dir, hit.normal, thread_rng().gen());
         light_color *= sample.f * sample.dir.dot(hit.normal).max(0.0) / sample.pdf;
 
-        pos += dir * hit.t;
+        pos += dir * hit.t + hit.normal * 1.0e-6;
         dir = sample.dir;
 
         if light_color.max_element() < 0.5 {
