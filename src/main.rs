@@ -6,103 +6,140 @@ use std::time::Instant;
 use brdf::{CompositeBrdf, LambertianBrdf, PhongSpecularBrdf, SmoothConductorBrdf};
 use glam::{DMat3, DVec3, EulerRot};
 use image::{Rgb32FImage, RgbImage};
-use objects::{Material, Object, Plane, RayHit, Sphere, Triangle};
+use objects::{Material, Object, RayHit, Sphere, Triangle};
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 
 mod brdf;
 mod objects;
+mod plymesh;
 mod random;
 
 type Spectrum = DVec3;
 
 fn main() {
-    let objects = [
-        // Box::new(Sphere {
-        //     origin: DVec3::new(0.0, 10.0, 2.0),
-        //     radius: 0.5,
-        //     material: Material {
-        //         emission: DVec3::splat(200.0),
-        //         brdf: Arc::new(LambertianBrdf {
-        //             albedo: Spectrum::splat(0.5),
-        //         }),
-        //     },
-        // }) as Box<dyn Object + Sync>,
-        Box::new(Sphere {
-            origin: DVec3::new(-2.0, -1.0, 0.0),
-            radius: 1.0,
-            material: Material {
-                emission: Spectrum::ZERO,
-                brdf: Arc::new(CompositeBrdf {
-                    a_weight: 0.1,
-                    a: PhongSpecularBrdf {
-                        albedo: Spectrum::splat(1.0),
-                        power: 50.0,
-                    },
-                    b: LambertianBrdf {
-                        albedo: Spectrum::new(1.0, 0.25, 0.25),
-                    },
-                }),
-            },
-        }) as Box<dyn Object + Sync>,
-        Box::new(Sphere {
-            origin: DVec3::new(2.0, -1.0, 0.0),
-            radius: 1.0,
-            material: Material {
-                emission: Spectrum::ZERO,
-                brdf: Arc::new(SmoothConductorBrdf {
-                    albedo: Spectrum::ONE,
-                    ior_re: Spectrum::new(0.22568, 0.40325, 1.3319),
-                    ior_im: Spectrum::new(3.19190, 2.53290, 1.8693),
-                }),
-            },
-        }),
-        Box::new(Plane {
-            point: DVec3::new(0.0, -2.0, 0.0),
-            normal: DVec3::new(0.0, 1.0, 0.0),
-            material: Material {
-                emission: Spectrum::ZERO,
-                brdf: Arc::new(LambertianBrdf {
-                    albedo: DVec3::new(0.5, 0.5, 0.5),
-                }),
-            },
-        }),
-        Box::new(Sphere {
-            origin: DVec3::new(0.0, 0.0, -2.0),
-            radius: 2.0,
-            material: Material {
-                emission: Spectrum::ZERO,
-                brdf: Arc::new(LambertianBrdf {
-                    albedo: DVec3::new(0.25, 0.25, 1.0),
-                }),
-            },
-        }),
-        Box::new(Triangle {
-            a: DVec3::new(-1.0, -1.0, 0.0),
-            b: DVec3::new(1.0, -1.0, 0.0),
-            c: DVec3::new(0.0, 1.0, 0.0),
-            material: Material {
-                emission: Spectrum::ZERO,
-                brdf: Arc::new(LambertianBrdf {
-                    albedo: DVec3::new(0.25, 1.0, 0.25),
-                }),
-            },
-        }),
-    ];
+    let t = Instant::now();
+    let (mut objects, bounds) = plymesh::load_plymesh(
+        std::fs::File::open("models/bun_zipper_res4.ply").unwrap(),
+        &Material {
+            emission: Spectrum::ZERO,
+            brdf: Arc::new(LambertianBrdf {
+                albedo: DVec3::new(1.0, 0.25, 0.25),
+            }),
+        },
+    )
+    .unwrap();
+    println!("Took {:.2?} to load model", t.elapsed());
+
+    let center = (bounds.min + bounds.max) / 2.0;
+    objects.push(Box::new(Triangle {
+        a: center.with_y(bounds.min.y) + DVec3::new(-10.0, 0.0, -10.0),
+        b: center.with_y(bounds.min.y) + DVec3::new(10.0, 0.0, 10.0),
+        c: center.with_y(bounds.min.y) + DVec3::new(10.0, 0.0, -10.0),
+        material: Material {
+            emission: Spectrum::ZERO,
+            brdf: Arc::new(LambertianBrdf {
+                albedo: DVec3::new(0.5, 0.5, 0.5),
+            }),
+        },
+    }));
+    objects.push(Box::new(Triangle {
+        a: center.with_y(bounds.min.y) + DVec3::new(10.0, 0.0, 10.0),
+        b: center.with_y(bounds.min.y) + DVec3::new(-10.0, 0.0, -10.0),
+        c: center.with_y(bounds.min.y) + DVec3::new(-10.0, 0.0, 10.0),
+        material: Material {
+            emission: Spectrum::ZERO,
+            brdf: Arc::new(LambertianBrdf {
+                albedo: DVec3::new(0.5, 0.5, 0.5),
+            }),
+        },
+    }));
+    // let objects = [
+    //     // Box::new(Sphere {
+    //     //     origin: DVec3::new(0.0, 10.0, 2.0),
+    //     //     radius: 0.5,
+    //     //     material: Material {
+    //     //         emission: DVec3::splat(200.0),
+    //     //         brdf: Arc::new(LambertianBrdf {
+    //     //             albedo: Spectrum::splat(0.5),
+    //     //         }),
+    //     //     },
+    //     // }) as Box<dyn Object + Sync>,
+    //     Box::new(Sphere {
+    //         origin: DVec3::new(-2.0, -1.0, 0.0),
+    //         radius: 1.0,
+    //         material: Material {
+    //             emission: Spectrum::ZERO,
+    //             brdf: Arc::new(CompositeBrdf {
+    //                 a_weight: 0.1,
+    //                 a: PhongSpecularBrdf {
+    //                     albedo: Spectrum::splat(1.0),
+    //                     power: 50.0,
+    //                 },
+    //                 b: LambertianBrdf {
+    //                     albedo: Spectrum::new(1.0, 0.25, 0.25),
+    //                 },
+    //             }),
+    //         },
+    //     }) as Box<dyn Object + Sync>,
+    //     Box::new(Sphere {
+    //         origin: DVec3::new(2.0, -1.0, 0.0),
+    //         radius: 1.0,
+    //         material: Material {
+    //             emission: Spectrum::ZERO,
+    //             brdf: Arc::new(SmoothConductorBrdf {
+    //                 albedo: Spectrum::ONE,
+    //                 ior_re: Spectrum::new(0.22568, 0.40325, 1.3319),
+    //                 ior_im: Spectrum::new(3.19190, 2.53290, 1.8693),
+    //             }),
+    //         },
+    //     }),
+    //     Box::new(Plane {
+    //         point: DVec3::new(0.0, -2.0, 0.0),
+    //         normal: DVec3::new(0.0, 1.0, 0.0),
+    //         material: Material {
+    //             emission: Spectrum::ZERO,
+    //             brdf: Arc::new(LambertianBrdf {
+    //                 albedo: DVec3::new(0.5, 0.5, 0.5),
+    //             }),
+    //         },
+    //     }),
+    //     Box::new(Sphere {
+    //         origin: DVec3::new(0.0, 0.0, -2.0),
+    //         radius: 2.0,
+    //         material: Material {
+    //             emission: Spectrum::ZERO,
+    //             brdf: Arc::new(LambertianBrdf {
+    //                 albedo: DVec3::new(0.25, 0.25, 1.0),
+    //             }),
+    //         },
+    //     }),
+    //     Box::new(Triangle {
+    //         a: DVec3::new(-1.0, -1.0, 0.0),
+    //         b: DVec3::new(1.0, -1.0, 0.0),
+    //         c: DVec3::new(0.0, 1.0, 0.0),
+    //         material: Material {
+    //             emission: Spectrum::ZERO,
+    //             brdf: Arc::new(LambertianBrdf {
+    //                 albedo: DVec3::new(0.25, 1.0, 0.25),
+    //             }),
+    //         },
+    //     }),
+    // ];
 
     const N: usize = 100;
-    const S: u32 = 100;
-    for i in 0..1 {
+    const S: u32 = 10;
+    for i in 0..N {
         let t = Instant::now();
         let yaw = i as f64 / N as f64 * PI * 2.0;
         let looking = DMat3::from_euler(EulerRot::YXZ, yaw, -0.3, 0.0);
-        let camera = looking * DVec3::Z * 5.0;
+        let camera = looking * DVec3::Z * (bounds.max - bounds.min).length() * 0.75 + center;
         let (img, conf, var) = render(480, 480, S, &objects, camera, looking);
         let d = t.elapsed();
         let efficiency = 1.0 / (var * d.as_secs_f64());
-        // save_final(&img, format!("i/{i}.png"));
-        save_final(&img, "img.png");
-        save_final(&conf, "conf.png");
+        save_final(&img, format!("i/{i}.png"));
+        // save_final(&img, "img.png");
+        // save_final(&conf, "conf.png");
         println!(
             "rendered frame {i} in {:.2?} ({:.2} samples/sec) with efficiency {efficiency}",
             d,
@@ -141,6 +178,9 @@ fn render(
                 let y = y as f64 + thread_rng().gen::<f64>() - height as f64 / 2.0;
                 let d = DVec3::new(x / height as f64 * 2.0, -y / height as f64 * 2.0, -1.0);
                 let d = looking * d.normalize();
+
+                // let value = raycast_scene(objects, camera, d)
+                //     .map_or(DVec3::ZERO, |hit| hit.1.normal / 2.0 + 0.5);
 
                 let value = path_trace(objects, camera, d);
                 let delta = value - mean;
@@ -186,7 +226,7 @@ fn path_trace(objs: &[Box<dyn Object + Sync>], pos: DVec3, dir: DVec3) -> DVec3 
             .sample(dir, hit.normal, thread_rng().gen());
         light_color *= sample.f * sample.dir.dot(hit.normal).max(0.0) / sample.pdf;
 
-        pos += dir * hit.t + hit.normal * 1.0e-6;
+        pos += dir * hit.t + hit.normal * 1.0e-9;
         dir = sample.dir;
 
         if light_color.max_element() < 0.5 {
@@ -209,7 +249,10 @@ fn raycast_scene(
     let mut closest = None;
     for obj in objs {
         if let Some(hit) = obj.raycast(origin, direction) {
-            if closest.as_ref().is_none_or(|old: &RayHit| hit.t < old.t) {
+            if closest
+                .as_ref()
+                .is_none_or(|old: &RayHit| hit.t < old.t - hit.normal.dot(direction) * 1.0e-12)
+            {
                 closest = Some(hit);
             }
         }
@@ -223,4 +266,9 @@ fn to_srgb(v: f32) -> f32 {
     } else {
         v.powf(1.0 / 2.4) * 1.055 - 0.055
     }
+}
+
+struct Bounds {
+    min: DVec3,
+    max: DVec3,
 }

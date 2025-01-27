@@ -3,7 +3,7 @@ use std::sync::Arc;
 use glam::{DVec3, Vec3Swizzles};
 
 use crate::brdf::Brdf;
-use crate::Spectrum;
+use crate::{Bounds, Spectrum};
 
 pub struct RayHit<'a> {
     pub t: f64,
@@ -18,6 +18,7 @@ pub struct Material {
 }
 
 pub trait Object {
+    fn bounds(&self) -> Bounds;
     fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit>;
 }
 
@@ -64,27 +65,12 @@ impl Object for Sphere {
             material: &self.material,
         })
     }
-}
 
-pub struct Plane {
-    pub point: DVec3,
-    pub normal: DVec3,
-    pub material: Material,
-}
-
-impl Object for Plane {
-    fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
-        let o = origin.dot(self.normal);
-        let d = direction.dot(self.normal);
-        let p = self.point.dot(self.normal);
-
-        let t = (p - o) / d;
-
-        (t > 0.0).then_some(RayHit {
-            t,
-            normal: self.normal,
-            material: &self.material,
-        })
+    fn bounds(&self) -> Bounds {
+        Bounds {
+            min: self.origin - self.radius,
+            max: self.origin + self.radius,
+        }
     }
 }
 
@@ -147,8 +133,15 @@ impl Object for Triangle {
 
         Some(RayHit {
             t,
-            normal: n.normalize(),
+            normal: n.normalize_or(DVec3::ZERO),
             material: &self.material,
         })
+    }
+
+    fn bounds(&self) -> Bounds {
+        Bounds {
+            min: self.a.min(self.b).min(self.c),
+            max: self.a.max(self.b).max(self.c),
+        }
     }
 }
