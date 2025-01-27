@@ -1,4 +1,5 @@
 use core::f64;
+use std::sync::Arc;
 
 use glam::DVec3;
 use ordered_float::OrderedFloat;
@@ -7,7 +8,7 @@ use crate::objects::{Object, RayHit};
 use crate::Bounds;
 
 pub struct Bvh {
-    objs: Vec<Box<dyn Object + Sync>>,
+    objs: Vec<Arc<dyn Object>>,
     root: BvhNode,
 }
 
@@ -22,7 +23,7 @@ struct BvhNode {
 }
 
 impl Bvh {
-    pub fn build(objects: Vec<Box<dyn Object + Sync>>) -> Self {
+    pub fn build(objects: Vec<Arc<dyn Object>>) -> Self {
         let root =
             build_bvh_node(&mut objects.iter().map(|b| &**b).enumerate().collect::<Vec<_>>());
         Bvh {
@@ -32,7 +33,7 @@ impl Bvh {
     }
 }
 
-fn build_bvh_node(objs: &mut [(usize, &(dyn Object + Sync))]) -> BvhNode {
+fn build_bvh_node(objs: &mut [(usize, &(dyn Object))]) -> BvhNode {
     let (bounds, centroid_bounds) = objs
         .iter()
         .map(|(_, obj)| obj.bounds())

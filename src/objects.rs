@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use glam::{DVec3, Vec3Swizzles};
+use glam::{BVec3, DMat4, DVec3, Vec3Swizzles};
 
 use crate::brdf::Brdf;
 use crate::{Bounds, Spectrum};
@@ -8,6 +8,7 @@ use crate::{Bounds, Spectrum};
 pub struct RayHit<'a> {
     pub t: f64,
     pub normal: DVec3,
+    pub geo_normal: DVec3,
     pub material: &'a Material,
 }
 
@@ -17,7 +18,7 @@ pub struct Material {
     pub brdf: Arc<dyn Brdf + Send + Sync>,
 }
 
-pub trait Object {
+pub trait Object: Send + Sync {
     fn bounds(&self) -> Bounds;
     fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit>;
 }
@@ -59,9 +60,11 @@ impl Object for Sphere {
             false => t1,
         };
 
+        let normal = (origin + t * direction).normalize();
         Some(RayHit {
             t,
-            normal: (origin + t * direction).normalize(),
+            normal,
+            geo_normal: normal,
             material: &self.material,
         })
     }
@@ -78,6 +81,9 @@ pub struct Triangle {
     pub a: DVec3,
     pub b: DVec3,
     pub c: DVec3,
+    pub a_n: DVec3,
+    pub b_n: DVec3,
+    pub c_n: DVec3,
     pub material: Material,
 }
 
@@ -124,16 +130,30 @@ impl Object for Triangle {
         if det == 0.0 {
             return None;
         }
+        let scale = 1.0 / det;
 
-        let t = (a.z * e_a + b.z * e_b + c.z * e_c) / det / d.z;
+        let t = (a.z * e_a + b.z * e_b + c.z * e_c) * scale / d.z;
 
         if t < 0.0 {
             return None;
         }
 
+        let dots = DVec3::new(
+            self.a_n.dot(direction),
+            self.b_n.dot(direction),
+            self.c_n.dot(direction),
+        );
+        let n_dot = n.dot(direction);
+        let normal = if dots.signum() == DVec3::splat(n_dot.signum()) {
+            ((self.a_n * e_a + self.b_n * e_b + self.c_n * e_c) * scale).normalize()
+        } else {
+            n
+        };
+
         Some(RayHit {
             t,
-            normal: n.normalize_or(DVec3::ZERO),
+            normal,
+            geo_normal: n,
             material: &self.material,
         })
     }
@@ -143,5 +163,65 @@ impl Object for Triangle {
             min: self.a.min(self.b).min(self.c),
             max: self.a.max(self.b).max(self.c),
         }
+    }
+}
+
+pub struct Transform {
+    transform: DMat4,
+    inverse: DMat4,
+    obj: Arc<dyn Object>,
+}
+
+impl Transform {
+    pub fn new(transform: DMat4, obj: Arc<dyn Object>) -> Self {
+        Transform {
+            inverse: transform.inverse(),
+            transform,
+            obj,
+        }
+    }
+}
+
+impl Object for Transform {
+    fn bounds(&self) -> Bounds {
+        let obj_bounds = self.obj.bounds();
+        (0..8)
+            .map(|corner| {
+                let bvec = BVec3::new(corner & 1 != 0, corner & 2 != 0, corner & 4 != 0);
+                let p = DVec3::select(bvec, obj_bounds.min, obj_bounds.max);
+                Bounds::point(self.transform.transform_point3(p))
+            })
+            .reduce(Bounds::union)
+            .unwrap()
+    }
+
+    fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
+        let orig_transformed = self.inverse.transform_point3(origin);
+        let dir_transformed = self.inverse.transform_vector3(direction);
+        self.obj
+            .raycast(orig_transformed, dir_transformed)
+            .map(|mut hit| {
+                hit.normal = self.transform.transform_vector3(hit.normal).normalize();
+                hit.geo_normal = self.transform.transform_vector3(hit.geo_normal).normalize();
+                hit
+            })
+    }
+}
+
+pub struct SetMaterial<O> {
+    pub material: Material,
+    pub obj: O,
+}
+
+impl<O: Object> Object for SetMaterial<O> {
+    fn bounds(&self) -> Bounds {
+        self.obj.bounds()
+    }
+
+    fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
+        self.obj.raycast(origin, direction).map(|hit| RayHit {
+            material: &self.material,
+            ..hit
+        })
     }
 }

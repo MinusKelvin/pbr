@@ -1,4 +1,5 @@
 use std::io::{BufRead, BufReader, Error, Read};
+use std::sync::Arc;
 
 use glam::{DVec3, Vec3};
 
@@ -8,7 +9,7 @@ use crate::Bounds;
 pub fn load_plymesh(
     reader: impl Read,
     material: &Material,
-) -> Result<(Vec<Box<dyn Object + Sync>>, Bounds), Error> {
+) -> Result<(Vec<Arc<dyn Object>>, Bounds), Error> {
     let mut reader = LineReader {
         reader: BufReader::new(reader),
         line: String::new(),
@@ -98,10 +99,28 @@ pub fn load_plymesh(
         }
     }
 
-    let min = vertices.iter().copied().reduce(|a, b| a.min(b)).unwrap();
-    let max = vertices.iter().copied().reduce(|a, b| a.max(b)).unwrap();
+    for (_, n) in &mut vertices {
+        *n = n.normalize();
+    }
 
-    Ok((triangles, Bounds { min, max }))
+    let objects = triangles
+        .into_iter()
+        .map(|[a, b, c]| {
+            Arc::new(Triangle {
+                a: vertices[a].0,
+                b: vertices[b].0,
+                c: vertices[c].0,
+                a_n: vertices[a].1,
+                b_n: vertices[b].1,
+                c_n: vertices[c].1,
+                material: material.clone(),
+            }) as Arc<_>
+        })
+        .collect();
+
+    let bounds = vertices.iter().map(|a| a.0).collect();
+
+    Ok((objects, bounds))
 }
 
 struct LineReader<R> {
@@ -159,8 +178,8 @@ fn parse_prim_ty(token: &str) -> Option<Prim> {
 fn parse_element_ascii<R: BufRead>(
     reader: &mut LineReader<R>,
     element: &Element,
-    vertices: &mut Vec<DVec3>,
-    triangles: &mut Vec<Box<dyn Object + Sync>>,
+    vertices: &mut Vec<(DVec3, DVec3)>,
+    triangles: &mut Vec<[usize; 3]>,
     material: &Material,
 ) -> Result<(), Error> {
     fn parse_prim<'a>(
@@ -247,16 +266,16 @@ fn parse_element_ascii<R: BufRead>(
                 .zip(y)
                 .zip(z)
                 .ok_or(Error::other("vertex does not have position"))?;
-            vertices.push(Vec3::new(x, y, z).as_dvec3());
+            vertices.push((Vec3::new(x, y, z).as_dvec3(), DVec3::ZERO));
         }
         "face" => {
-            let [a, b, c] = indices.ok_or(Error::other("face does not have vertex indices"))?;
-            triangles.push(Box::new(Triangle {
-                a: vertices[a],
-                b: vertices[b],
-                c: vertices[c],
-                material: material.clone(),
-            }));
+            let is = indices.ok_or(Error::other("face does not have vertex indices"))?;
+            triangles.push(is);
+            let n = (vertices[is[2]].0 - vertices[is[1]].0)
+                .cross(vertices[is[0]].0 - vertices[is[1]].0);
+            for i in is {
+                vertices[i].1 += n;
+            }
         }
         _ => {}
     }
