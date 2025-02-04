@@ -2,20 +2,14 @@ use std::sync::Arc;
 
 use glam::{BVec3, DMat4, DVec3, Vec3Swizzles};
 
-use crate::brdf::Brdf;
-use crate::{Bounds, Spectrum};
+use crate::material::{Material, MaterialErased};
+use crate::Bounds;
 
 pub struct RayHit<'a> {
     pub t: f64,
     pub normal: DVec3,
     pub geo_normal: DVec3,
-    pub material: &'a Material,
-}
-
-#[derive(Clone)]
-pub struct Material {
-    pub emission: Spectrum,
-    pub brdf: Arc<dyn Brdf + Send + Sync>,
+    pub material: &'a dyn MaterialErased,
 }
 
 pub trait Object: Send + Sync {
@@ -23,13 +17,16 @@ pub trait Object: Send + Sync {
     fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit>;
 }
 
-pub struct Sphere {
+pub struct Sphere<E, B> {
     pub origin: DVec3,
     pub radius: f64,
-    pub material: Material,
+    pub material: Material<E, B>,
 }
 
-impl Object for Sphere {
+impl<E, B> Object for Sphere<E, B>
+where
+    Material<E, B>: MaterialErased,
+{
     fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
         let origin = origin - self.origin;
         // radius = sqrt(lengthsq(o + t*d))
@@ -77,17 +74,20 @@ impl Object for Sphere {
     }
 }
 
-pub struct Triangle {
+pub struct Triangle<E, B> {
     pub a: DVec3,
     pub b: DVec3,
     pub c: DVec3,
     pub a_n: DVec3,
     pub b_n: DVec3,
     pub c_n: DVec3,
-    pub material: Material,
+    pub material: Material<E, B>,
 }
 
-impl Object for Triangle {
+impl<E, B> Object for Triangle<E, B>
+where
+    Material<E, B>: MaterialErased,
+{
     fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
         let n = (self.c - self.b).cross(self.a - self.b);
 
@@ -208,12 +208,15 @@ impl Object for Transform {
     }
 }
 
-pub struct SetMaterial<O> {
-    pub material: Material,
+pub struct SetMaterial<O, E, B> {
+    pub material: Material<E, B>,
     pub obj: O,
 }
 
-impl<O: Object> Object for SetMaterial<O> {
+impl<O: Object, E, B> Object for SetMaterial<O, E, B>
+where
+    Material<E, B>: MaterialErased,
+{
     fn bounds(&self) -> Bounds {
         self.obj.bounds()
     }

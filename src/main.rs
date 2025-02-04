@@ -6,41 +6,41 @@ use std::time::Instant;
 
 use brdf::{CompositeBrdf, LambertianBrdf, PhongSpecularBrdf, SmoothConductorBrdf};
 use bvh::Bvh;
-use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot};
+use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot, Vec3};
 use image::{Rgb32FImage, RgbImage};
-use objects::{Material, Object, RayHit, SetMaterial, Sphere, Transform, Triangle};
+use material::Material;
+use objects::{Object, RayHit, SetMaterial, Sphere, Transform, Triangle};
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
+use spectrum::physical::cie_d65;
+use spectrum::{ConstantSpectrum, Spectrum};
 
 mod brdf;
 mod bvh;
+mod material;
 mod objects;
 mod plymesh;
 mod random;
-
-type Spectrum = DVec3;
+mod spectrum;
 
 fn main() {
     let t = Instant::now();
     let (dragon, dragon_bounds) = plymesh::load_plymesh(
         std::fs::File::open("models/dragon_vrip.ply").unwrap(),
         &Material {
-            emission: Spectrum::ZERO,
-            brdf: Arc::new(LambertianBrdf {
-                albedo: DVec3::new(1.0, 0.25, 0.25),
-            }),
+            emission: spectrum::ZERO,
+            // brdf: LambertianBrdf {
+            //     albedo: DVec3::new(1.0, 0.25, 0.25),
+            // },
+            brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
         },
     )
     .unwrap();
     let (bunny, bunny_bounds) = plymesh::load_plymesh(
         std::fs::File::open("models/bun_zipper.ply").unwrap(),
         &Material {
-            emission: Spectrum::ZERO,
-            brdf: Arc::new(SmoothConductorBrdf {
-                albedo: Spectrum::ONE,
-                ior_re: DVec3::new(0.22568, 0.40325, 1.3319),
-                ior_im: DVec3::new(3.1919, 2.5329, 1.8693),
-            }),
+            emission: spectrum::ZERO,
+            brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
         },
     )
     .unwrap();
@@ -58,10 +58,10 @@ fn main() {
             b_n: DVec3::Y,
             c_n: DVec3::Y,
             material: Material {
-                emission: Spectrum::ZERO,
-                brdf: Arc::new(LambertianBrdf {
-                    albedo: DVec3::new(0.5, 0.5, 0.5),
-                }),
+                emission: spectrum::ZERO,
+                brdf: LambertianBrdf {
+                    albedo: ConstantSpectrum(0.5),
+                },
             },
         }) as Arc<dyn Object>,
         Arc::new(Triangle {
@@ -72,10 +72,10 @@ fn main() {
             b_n: DVec3::Y,
             c_n: DVec3::Y,
             material: Material {
-                emission: Spectrum::ZERO,
-                brdf: Arc::new(LambertianBrdf {
-                    albedo: DVec3::new(0.5, 0.5, 0.5),
-                }),
+                emission: spectrum::ZERO,
+                brdf: LambertianBrdf {
+                    albedo: ConstantSpectrum(0.5),
+                },
             },
         }),
     ];
@@ -87,10 +87,11 @@ fn main() {
 
     objects.push(Arc::new(SetMaterial {
         material: Material {
-            emission: DVec3::ZERO,
-            brdf: Arc::new(LambertianBrdf {
-                albedo: DVec3::new(0.25, 1.0, 0.25),
-            }),
+            emission: spectrum::ZERO,
+            // brdf: Arc::new(LambertianBrdf {
+            //     albedo: DVec3::new(0.25, 1.0, 0.25),
+            // }),
+            brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
         },
         obj: Transform::new(
             DMat4::from_scale_rotation_translation(
@@ -103,10 +104,11 @@ fn main() {
     }));
     objects.push(Arc::new(SetMaterial {
         material: Material {
-            emission: DVec3::ZERO,
-            brdf: Arc::new(LambertianBrdf {
-                albedo: DVec3::new(0.25, 0.25, 1.0),
-            }),
+            emission: spectrum::ZERO,
+            // brdf: Arc::new(LambertianBrdf {
+            //     albedo: DVec3::new(0.25, 0.25, 1.0),
+            // }),
+            brdf: SmoothConductorBrdf::new(material::physical::ior_copper()),
         },
         obj: Transform::new(
             DMat4::from_scale_rotation_translation(
@@ -138,12 +140,8 @@ fn main() {
         ),
         radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.3,
         material: Material {
-            emission: DVec3::ZERO,
-            brdf: Arc::new(SmoothConductorBrdf {
-                albedo: DVec3::ONE,
-                ior_re: DVec3::new(0.058040, 0.058090, 0.046878),
-                ior_im: DVec3::new(4.0944, 3.6380, 2.8028),
-            }),
+            emission: spectrum::ZERO,
+            brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
         },
     }));
     objects.push(Arc::new(Sphere {
@@ -154,26 +152,23 @@ fn main() {
         ),
         radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.3,
         material: Material {
-            emission: DVec3::ZERO,
-            brdf: Arc::new(SmoothConductorBrdf {
-                albedo: DVec3::ONE,
-                ior_re: DVec3::new(0.058040, 0.058090, 0.046878),
-                ior_im: DVec3::new(4.0944, 3.6380, 2.8028),
-            }),
+            emission: spectrum::ZERO,
+            brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
         },
     }));
 
     let approx_model_size = (dragon_bounds.max - dragon_bounds.min).length() * 0.8;
 
     const N: usize = 100;
-    const S: u32 = 100;
+    const S: u32 = 1000;
     for i in 0..1 {
         let t = Instant::now();
         let yaw = i as f64 / N as f64 * PI * 2.0;
         let looking = DMat3::from_euler(EulerRot::YXZ, yaw - 0.3, -0.4, 0.0);
         let camera = approx_model_size * (looking * DVec3::Z + DVec3::new(0.0, 0.5, 0.0));
-        let (img, conf, var) = render(853, 480, S, &objects, camera, looking);
+        let (img, conf, var) = render(853*3, 480*3, S, &objects, camera, looking);
         let d = t.elapsed();
+        dbg!(img.get_pixel(0, 0));
         let efficiency = 1.0 / (var * d.as_secs_f64());
         // save_final(&img, format!("i/{i}.png"));
         save_final(&img, "img.png");
@@ -189,7 +184,9 @@ fn main() {
 fn save_final(img: &Rgb32FImage, path: impl AsRef<Path>) {
     let mut out = RgbImage::new(img.width(), img.height());
     for (o, i) in out.pixels_mut().zip(img.pixels()) {
-        o.0 = i.0.map(|v| (to_srgb(v.clamp(0.0, 1.0)) * 255.0) as u8);
+        o.0 = spectrum::xyz_to_srgb(Vec3::from_array(i.0).as_dvec3())
+            .to_array()
+            .map(|v| (v * 255.0).round() as u8);
     }
     out.save(path).unwrap();
 }
@@ -216,11 +213,13 @@ fn render(
                 let y = y as f64 + thread_rng().gen::<f64>() - height as f64 / 2.0;
                 let d = DVec3::new(x / height as f64 * 2.0, -y / height as f64 * 2.0, -1.0);
                 let d = looking * d.normalize();
+                let lambda = thread_rng().gen_range(spectrum::VISIBLE);
 
                 // let value = raycast_scene(objects, camera, d)
                 //     .map_or(DVec3::ZERO, |hit| hit.normal / 2.0 + 0.5);
 
-                let value = path_trace(objects, camera, d);
+                let radiance = path_trace(objects, camera, d, lambda);
+                let value = radiance * spectrum::lambda_to_xyz(lambda);
                 let delta = value - mean;
                 count += 1.0;
                 mean += delta / count;
@@ -239,16 +238,16 @@ fn render(
     (image, conf_image, average_conf)
 }
 
-fn path_trace(objs: &[Arc<dyn Object>], pos: DVec3, dir: DVec3) -> DVec3 {
-    let mut light_color = DVec3::ONE;
-    let mut color = DVec3::ZERO;
+fn path_trace(objs: &[Arc<dyn Object>], pos: DVec3, dir: DVec3, lambda: f64) -> f64 {
+    let mut throughput = 1.0;
+    let mut radiance = 0.0;
 
     let mut pos = pos;
     let mut dir = dir;
 
-    while light_color != DVec3::ZERO {
+    while throughput != 0.0 {
         let Some(hit) = raycast_scene(objs, pos, dir) else {
-            color += light_color * DVec3::splat(0.5);
+            radiance += throughput * cie_d65().sample(lambda);
             break;
         };
 
@@ -256,27 +255,26 @@ fn path_trace(objs: &[Arc<dyn Object>], pos: DVec3, dir: DVec3) -> DVec3 {
             break;
         }
 
-        color += light_color * hit.material.emission;
+        radiance += throughput * hit.material.emission_sample(lambda);
 
         let sample = hit
             .material
-            .brdf
-            .sample(dir, hit.normal, thread_rng().gen());
-        light_color *= sample.f * sample.dir.dot(hit.normal).max(0.0) / sample.pdf;
+            .brdf_sample(dir, hit.normal, lambda, thread_rng().gen());
+        throughput *= sample.f * sample.dir.dot(hit.normal).max(0.0) / sample.pdf;
 
         pos += dir * hit.t + hit.geo_normal * (f64::EPSILON * pos.abs().max_element() * 32.0);
         dir = sample.dir;
 
-        if light_color.max_element() < 0.5 {
+        if throughput < 0.5 {
             if thread_rng().gen_bool(0.5) {
                 break;
             } else {
-                light_color *= 2.0;
+                throughput *= 2.0;
             }
         }
     }
 
-    color
+    radiance
 }
 
 fn raycast_scene(objs: &[Arc<dyn Object>], origin: DVec3, direction: DVec3) -> Option<RayHit> {
@@ -292,14 +290,6 @@ fn raycast_scene(objs: &[Arc<dyn Object>], origin: DVec3, direction: DVec3) -> O
         }
     }
     closest
-}
-
-fn to_srgb(v: f32) -> f32 {
-    if v < 0.0031308 {
-        v * 12.92
-    } else {
-        v.powf(1.0 / 2.4) * 1.055 - 0.055
-    }
 }
 
 #[derive(Clone, Copy, Debug)]

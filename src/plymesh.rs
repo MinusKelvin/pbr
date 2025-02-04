@@ -3,13 +3,17 @@ use std::sync::Arc;
 
 use glam::{DVec3, Vec3};
 
-use crate::objects::{Material, Object, Triangle};
+use crate::material::{Material, MaterialErased};
+use crate::objects::{Object, Triangle};
 use crate::Bounds;
 
-pub fn load_plymesh(
+pub fn load_plymesh<E: 'static, B: 'static>(
     reader: impl Read,
-    material: &Material,
-) -> Result<(Vec<Arc<dyn Object>>, Bounds), Error> {
+    material: &Material<E, B>,
+) -> Result<(Vec<Arc<dyn Object>>, Bounds), Error>
+where
+    Material<E, B>: MaterialErased + Clone,
+{
     let mut reader = LineReader {
         reader: BufReader::new(reader),
         line: String::new(),
@@ -88,13 +92,9 @@ pub fn load_plymesh(
     for element in elements {
         for _ in 0..element.count {
             match format {
-                ParseFormat::Ascii => parse_element_ascii(
-                    &mut reader,
-                    &element,
-                    &mut vertices,
-                    &mut triangles,
-                    material,
-                )?,
+                ParseFormat::Ascii => {
+                    parse_element_ascii(&mut reader, &element, &mut vertices, &mut triangles)?
+                }
             }
         }
     }
@@ -180,7 +180,6 @@ fn parse_element_ascii<R: BufRead>(
     element: &Element,
     vertices: &mut Vec<(DVec3, DVec3)>,
     triangles: &mut Vec<[usize; 3]>,
-    material: &Material,
 ) -> Result<(), Error> {
     fn parse_prim<'a>(
         tokens: &mut impl Iterator<Item = &'a str>,

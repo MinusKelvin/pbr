@@ -3,12 +3,13 @@ use std::f64::consts::PI;
 use glam::{DVec2, DVec3, FloatExt, Vec3Swizzles};
 use num::complex::Complex64;
 
-use crate::{random, Spectrum};
+use crate::random;
+use crate::spectrum::Spectrum;
 
 pub struct BrdfSample {
     pub dir: DVec3,
     pub pdf: f64,
-    pub f: Spectrum,
+    pub f: f64,
 }
 
 pub trait Brdf {
@@ -20,7 +21,7 @@ pub trait Brdf {
     ///
     /// This function should be *energy conserving*: for all `outgoing`, the integral of
     /// `f(incoming, outgoing) * cos(theta)` wrt `incoming` over the sphere should be <= 1.
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum;
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64;
 
     /// Samples an incoming light direction from a distribution approximating [`Bsdf::f`], given
     /// canonical random variables on `[0, 1)`.
@@ -32,7 +33,7 @@ pub trait Brdf {
     ///
     /// The default implementation samples the hemisphere with a cosine-weighted distribution,
     /// which effectively importance samples the `cos(theta)` term in the rendering equation.
-    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
+    fn sample(&self, outgoing: DVec3, normal: DVec3, lambda: f64, random: DVec3) -> BrdfSample {
         _ = outgoing;
         let d = random::disk(random.xy());
         let z = (1.0 - d.length_squared()).sqrt();
@@ -42,8 +43,8 @@ pub trait Brdf {
 
         BrdfSample {
             dir: incoming,
-            pdf: self.pdf(incoming, outgoing, normal),
-            f: self.f(incoming, outgoing, normal),
+            pdf: self.pdf(incoming, outgoing, normal, lambda),
+            f: self.f(incoming, outgoing, normal, lambda),
         }
     }
 
@@ -54,38 +55,41 @@ pub trait Brdf {
     ///
     /// Since this is a PDF, for all `outgoing`, the integral of `pdf(incoming, outgoing)` wrt
     /// `incoming` over the sphere should be exactly 1.
-    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
+    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
         _ = outgoing;
+        _ = lambda;
         incoming.dot(normal) / PI
     }
 }
 
-pub struct LambertianBrdf {
-    pub albedo: Spectrum,
+#[derive(Clone)]
+pub struct LambertianBrdf<S> {
+    pub albedo: S,
 }
 
-impl Brdf for LambertianBrdf {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
+impl<S: Spectrum> Brdf for LambertianBrdf<S> {
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
         _ = normal;
         _ = outgoing;
         _ = incoming;
-        self.albedo / PI
+        self.albedo.sample(lambda) / PI
     }
 }
 
-pub struct PhongSpecularBrdf {
-    pub albedo: Spectrum,
+#[derive(Clone)]
+pub struct PhongSpecularBrdf<S> {
+    pub albedo: S,
     pub power: f64,
 }
 
-impl Brdf for PhongSpecularBrdf {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
+impl<S: Spectrum> Brdf for PhongSpecularBrdf<S> {
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
         let reflect = outgoing.reflect(normal);
-        self.albedo * (self.power + 2.0) / (2.0 * PI)
+        self.albedo.sample(lambda) * (self.power + 2.0) / (2.0 * PI)
             * incoming.dot(reflect).max(0.0).powf(self.power)
     }
 
-    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
+    fn sample(&self, outgoing: DVec3, normal: DVec3, lambda: f64, random: DVec3) -> BrdfSample {
         let reflect = outgoing.reflect(normal);
 
         let z = random.x.powf(1.0 / (self.power + 1.0));
@@ -100,31 +104,33 @@ impl Brdf for PhongSpecularBrdf {
 
         BrdfSample {
             dir: incoming,
-            pdf: self.pdf(incoming, outgoing, normal),
-            f: self.f(incoming, outgoing, normal),
+            pdf: self.pdf(incoming, outgoing, normal, lambda),
+            f: self.f(incoming, outgoing, normal, lambda),
         }
     }
 
-    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
+    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
+        _ = lambda;
         let reflect = outgoing.reflect(normal);
         (self.power + 1.0) / (2.0 * PI) * incoming.dot(reflect).max(0.0).powf(self.power)
     }
 }
 
-pub struct PhongRetroBrdf {
+#[derive(Clone)]
+pub struct PhongRetroBrdf<S> {
     pub power: f64,
-    pub albedo: Spectrum,
+    pub albedo: S,
 }
 
-impl Brdf for PhongRetroBrdf {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
+impl<S: Spectrum> Brdf for PhongRetroBrdf<S> {
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
         _ = normal;
         let retro = -outgoing;
-        self.albedo * (self.power + 2.0) / (2.0 * PI)
+        self.albedo.sample(lambda) * (self.power + 2.0) / (2.0 * PI)
             * incoming.dot(retro).max(0.0).powf(self.power)
     }
 
-    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
+    fn sample(&self, outgoing: DVec3, normal: DVec3, lambda: f64, random: DVec3) -> BrdfSample {
         let retro = -outgoing;
 
         let z = random.x.powf(1.0 / (self.power + 1.0));
@@ -139,54 +145,66 @@ impl Brdf for PhongRetroBrdf {
 
         BrdfSample {
             dir: incoming,
-            pdf: self.pdf(incoming, outgoing, normal),
-            f: self.f(incoming, outgoing, normal),
+            pdf: self.pdf(incoming, outgoing, normal, lambda),
+            f: self.f(incoming, outgoing, normal, lambda),
         }
     }
 
-    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
+    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
         _ = normal;
+        _ = lambda;
         let retro = -outgoing;
         (self.power + 1.0) / (2.0 * PI) * incoming.dot(retro).max(0.0).powf(self.power)
     }
 }
 
-pub struct SmoothConductorBrdf {
-    pub albedo: Spectrum,
-    pub ior_re: Spectrum,
-    pub ior_im: Spectrum,
+#[derive(Clone)]
+pub struct SmoothConductorBrdf<Sr, Si> {
+    pub ior_re: Sr,
+    pub ior_im: Si,
 }
 
-impl Brdf for SmoothConductorBrdf {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
+impl<'a, S> SmoothConductorBrdf<&'a S, &'a S> {
+    pub fn new(ior: &'a [S; 2]) -> Self {
+        SmoothConductorBrdf {
+            ior_re: &ior[0],
+            ior_im: &ior[1],
+        }
+    }
+}
+
+impl<Sr: Spectrum, Si: Spectrum> Brdf for SmoothConductorBrdf<Sr, Si> {
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
         _ = incoming;
         _ = outgoing;
         _ = normal;
-        Spectrum::ZERO
+        _ = lambda;
+        0.0
     }
 
-    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
+    fn sample(&self, outgoing: DVec3, normal: DVec3, lambda: f64, random: DVec3) -> BrdfSample {
         _ = random;
         let incoming = outgoing.reflect(normal);
         let cos_i = incoming.dot(normal);
-        let fresnel = map2(self.ior_re, self.ior_im, |re, im| {
-            fresnel_reflectance_complex(cos_i, Complex64::new(re, im))
-        });
+        let ior = Complex64::new(self.ior_re.sample(lambda), self.ior_im.sample(lambda));
+        let fresnel = fresnel_reflectance_complex(cos_i, ior);
         BrdfSample {
             dir: incoming,
             pdf: 1.0,
-            f: self.albedo * fresnel / cos_i,
+            f: fresnel / cos_i,
         }
     }
 
-    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
+    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
         _ = incoming;
         _ = outgoing;
         _ = normal;
+        _ = lambda;
         0.0
     }
 }
 
+#[derive(Clone)]
 pub struct CompositeBrdf<A, B> {
     pub a_weight: f64,
     pub a: A,
@@ -194,44 +212,51 @@ pub struct CompositeBrdf<A, B> {
 }
 
 impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> Spectrum {
-        let a = self.a.f(incoming, outgoing, normal);
-        let b = self.b.f(incoming, outgoing, normal);
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
+        let a = self.a.f(incoming, outgoing, normal, lambda);
+        let b = self.b.f(incoming, outgoing, normal, lambda);
         a.lerp(b, 1.0 - self.a_weight)
     }
 
-    fn sample(&self, outgoing: DVec3, normal: DVec3, random: DVec3) -> BrdfSample {
+    fn sample(&self, outgoing: DVec3, normal: DVec3, lambda: f64, random: DVec3) -> BrdfSample {
         if random.z < self.a_weight {
-            let mut sample =
-                self.a
-                    .sample(outgoing, normal, random.with_z(random.z / self.a_weight));
+            let mut sample = self.a.sample(
+                outgoing,
+                normal,
+                lambda,
+                random.with_z(random.z / self.a_weight),
+            );
             sample.pdf = sample.pdf.lerp(
-                self.b.pdf(sample.dir, outgoing, normal),
+                self.b.pdf(sample.dir, outgoing, normal, lambda),
                 1.0 - self.a_weight,
             );
-            sample.f = sample
-                .f
-                .lerp(self.b.f(sample.dir, outgoing, normal), 1.0 - self.a_weight);
+            sample.f = sample.f.lerp(
+                self.b.f(sample.dir, outgoing, normal, lambda),
+                1.0 - self.a_weight,
+            );
             sample
         } else {
             let mut sample = self.b.sample(
                 outgoing,
                 normal,
+                lambda,
                 random.with_z((random.z - self.a_weight) / (1.0 - self.a_weight)),
             );
-            sample.pdf = sample
-                .pdf
-                .lerp(self.a.pdf(sample.dir, outgoing, normal), self.a_weight);
-            sample.f = sample
-                .f
-                .lerp(self.a.f(sample.dir, outgoing, normal), self.a_weight);
+            sample.pdf = sample.pdf.lerp(
+                self.a.pdf(sample.dir, outgoing, normal, lambda),
+                self.a_weight,
+            );
+            sample.f = sample.f.lerp(
+                self.a.f(sample.dir, outgoing, normal, lambda),
+                self.a_weight,
+            );
             sample
         }
     }
 
-    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3) -> f64 {
-        let a = self.a.pdf(incoming, outgoing, normal);
-        let b = self.b.pdf(incoming, outgoing, normal);
+    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
+        let a = self.a.pdf(incoming, outgoing, normal, lambda);
+        let b = self.b.pdf(incoming, outgoing, normal, lambda);
         a.lerp(b, 1.0 - self.a_weight)
     }
 }
@@ -259,8 +284,4 @@ fn fresnel_reflectance_complex(cos_i: f64, rel_ior: Complex64) -> f64 {
     let r_perp = (cos_i - rel_ior * cos_t) / (cos_i + rel_ior * cos_t);
 
     (r_par.norm_sqr() + r_perp.norm_sqr()) / 2.0
-}
-
-fn map2(a: DVec3, b: DVec3, mut f: impl FnMut(f64, f64) -> f64) -> DVec3 {
-    DVec3::new(f(a.x, b.x), f(a.y, b.y), f(a.z, b.z))
 }
