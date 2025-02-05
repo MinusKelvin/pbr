@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use brdf::{CompositeBrdf, LambertianBrdf, PhongSpecularBrdf, SmoothConductorBrdf};
+use brdf::{LambertianBrdf, SmoothConductorBrdf};
 use bvh::Bvh;
 use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot, Vec3};
 use image::{Rgb32FImage, RgbImage};
@@ -166,7 +166,7 @@ fn main() {
         let yaw = i as f64 / N as f64 * PI * 2.0;
         let looking = DMat3::from_euler(EulerRot::YXZ, yaw - 0.3, -0.4, 0.0);
         let camera = approx_model_size * (looking * DVec3::Z + DVec3::new(0.0, 0.5, 0.0));
-        let (img, conf, var) = render(853*3, 480*3, S, &objects, camera, looking);
+        let (img, conf, var) = render(853 * 3, 480 * 3, S, &objects, camera, looking);
         let d = t.elapsed();
         dbg!(img.get_pixel(0, 0));
         let efficiency = 1.0 / (var * d.as_secs_f64());
@@ -214,12 +214,13 @@ fn render(
                 let d = DVec3::new(x / height as f64 * 2.0, -y / height as f64 * 2.0, -1.0);
                 let d = looking * d.normalize();
                 let lambda = thread_rng().gen_range(spectrum::VISIBLE);
+                let pdf = 1.0 / (spectrum::VISIBLE.end - spectrum::VISIBLE.start);
 
                 // let value = raycast_scene(objects, camera, d)
                 //     .map_or(DVec3::ZERO, |hit| hit.normal / 2.0 + 0.5);
 
                 let radiance = path_trace(objects, camera, d, lambda);
-                let value = radiance * spectrum::lambda_to_xyz(lambda);
+                let value = radiance / pdf * spectrum::lambda_to_xyz(lambda);
                 let delta = value - mean;
                 count += 1.0;
                 mean += delta / count;
