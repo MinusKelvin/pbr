@@ -138,6 +138,8 @@ where
             return None;
         }
 
+        let n = n.normalize();
+
         let dots = DVec3::new(
             self.a_n.dot(direction),
             self.b_n.dot(direction),

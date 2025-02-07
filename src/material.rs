@@ -17,6 +17,8 @@ pub trait MaterialErased: Send + Sync {
     fn brdf_sample(&self, outgoing: DVec3, normal: DVec3, lambda: f64, random: DVec3)
         -> BrdfSample;
     fn brdf_pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64;
+
+    fn name(&self) -> &'static str;
 }
 
 impl<E: Spectrum + Send + Sync, B: Brdf + Send + Sync> MaterialErased for Material<E, B> {
@@ -40,5 +42,9 @@ impl<E: Spectrum + Send + Sync, B: Brdf + Send + Sync> MaterialErased for Materi
 
     fn brdf_pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
         self.brdf.pdf(incoming, outgoing, normal, lambda)
+    }
+
+    fn name(&self) -> &'static str {
+        self.brdf.name()
     }
 }

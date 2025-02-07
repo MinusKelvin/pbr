@@ -4,10 +4,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use brdf::{LambertianBrdf, SmoothConductorBrdf};
+use brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf};
 use bvh::Bvh;
 use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot, Vec3};
 use image::{Rgb32FImage, RgbImage};
+use material::physical::ior_glass;
 use material::Material;
 use objects::{Object, RayHit, SetMaterial, Sphere, Transform, Triangle};
 use rand::{thread_rng, Rng};
@@ -32,7 +33,8 @@ fn main() {
             // brdf: LambertianBrdf {
             //     albedo: DVec3::new(1.0, 0.25, 0.25),
             // },
-            brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
+            // brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
+            brdf: DielectricBrdf { ior: ior_glass() },
         },
     )
     .unwrap();
@@ -92,6 +94,9 @@ fn main() {
             //     albedo: DVec3::new(0.25, 1.0, 0.25),
             // }),
             brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
+            // brdf: DielectricBrdf {
+            //     ior: ConstantSpectrum(1.5),
+            // },
         },
         obj: Transform::new(
             DMat4::from_scale_rotation_translation(
@@ -154,21 +159,23 @@ fn main() {
         material: Material {
             emission: spectrum::ZERO,
             brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
+            // brdf: DielectricBrdf {
+            //     ior: ConstantSpectrum(1.5),
+            // },
         },
     }));
 
     let approx_model_size = (dragon_bounds.max - dragon_bounds.min).length() * 0.8;
 
     const N: usize = 100;
-    const S: u32 = 1000;
+    const S: u32 = 100000;
     for i in 0..1 {
         let t = Instant::now();
         let yaw = i as f64 / N as f64 * PI * 2.0;
         let looking = DMat3::from_euler(EulerRot::YXZ, yaw - 0.3, -0.4, 0.0);
         let camera = approx_model_size * (looking * DVec3::Z + DVec3::new(0.0, 0.5, 0.0));
-        let (img, conf, var) = render(853 * 3, 480 * 3, S, &objects, camera, looking);
+        let (img, conf, var) = render(853/10, 480/10, S, &objects, camera, looking);
         let d = t.elapsed();
-        dbg!(img.get_pixel(0, 0));
         let efficiency = 1.0 / (var * d.as_secs_f64());
         // save_final(&img, format!("i/{i}.png"));
         save_final(&img, "img.png");
@@ -248,22 +255,31 @@ fn path_trace(objs: &[Arc<dyn Object>], pos: DVec3, dir: DVec3, lambda: f64) -> 
 
     while throughput != 0.0 {
         let Some(hit) = raycast_scene(objs, pos, dir) else {
-            radiance += throughput * cie_d65().sample(lambda);
+            let strength = if dir.dot(DVec3::new(0.2, 1.0, -0.3).normalize()) > 0.99 {
+                50.0
+            } else {
+                0.1
+            };
+            radiance += throughput * cie_d65().sample(lambda) * strength;
             break;
         };
-
-        if hit.normal.dot(dir) > 0.0 {
-            break;
-        }
 
         radiance += throughput * hit.material.emission_sample(lambda);
 
         let sample = hit
             .material
             .brdf_sample(dir, hit.normal, lambda, thread_rng().gen());
-        throughput *= sample.f * sample.dir.dot(hit.normal).max(0.0) / sample.pdf;
 
-        pos += dir * hit.t + hit.geo_normal * (f64::EPSILON * pos.abs().max_element() * 32.0);
+        if sample.dir == DVec3::ZERO {
+            break;
+        }
+
+        let cos_theta = sample.dir.dot(hit.normal).abs();
+        throughput *= sample.f * cos_theta / sample.pdf;
+
+        let offset_dir = hit.geo_normal.dot(sample.dir).signum();
+        pos += dir * hit.t
+            + hit.geo_normal * (f64::EPSILON * pos.abs().max_element() * 32.0 * offset_dir);
         dir = sample.dir;
 
         if throughput < 0.5 {

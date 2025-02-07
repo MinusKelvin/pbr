@@ -22,3 +22,10 @@ pub fn ior_copper() -> &'static [impl Spectrum; 2] {
     });
     &IOR
 }
+
+pub fn ior_glass() -> &'static impl Spectrum {
+    static IOR: LazyLock<PiecewiseLinearSpectrum> = LazyLock::new(|| {
+        PiecewiseLinearSpectrum::from_csv(include_str!("ior-glass_Rubin.csv"))
+    });
+    &*IOR
+}
