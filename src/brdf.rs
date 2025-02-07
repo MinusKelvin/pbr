@@ -73,9 +73,10 @@ pub struct LambertianBrdf<S> {
 
 impl<S: Spectrum> Brdf for LambertianBrdf<S> {
     fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
-        _ = normal;
-        _ = outgoing;
         _ = incoming;
+        if outgoing.dot(normal) > 0.0 {
+            return 0.0;
+        }
         self.albedo.sample(lambda) / PI
     }
 }

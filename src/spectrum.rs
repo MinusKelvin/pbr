@@ -33,11 +33,18 @@ impl Spectrum for ConstantSpectrum {
     }
 }
 
+#[derive(Clone)]
 pub struct PiecewiseLinearSpectrum {
     data: Box<[(f64, f64)]>,
 }
 
 impl PiecewiseLinearSpectrum {
+    pub fn from_points(data: &[(f64, f64)]) -> Self {
+        let mut data = data.to_vec().into_boxed_slice();
+        data.sort_by_key(|&(l, _)| OrderedFloat(l));
+        PiecewiseLinearSpectrum { data }
+    }
+
     pub fn from_csv(csv: &str) -> Self {
         let [this] = Self::from_csv_multi(csv);
         this

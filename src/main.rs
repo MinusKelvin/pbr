@@ -6,15 +6,15 @@ use std::time::Instant;
 
 use brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf};
 use bvh::Bvh;
-use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot, Vec3};
-use image::{Rgb32FImage, RgbImage};
+use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot};
+use image::RgbImage;
 use material::physical::ior_glass;
 use material::Material;
 use objects::{Object, RayHit, SetMaterial, Sphere, Transform, Triangle};
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use spectrum::physical::cie_d65;
-use spectrum::{ConstantSpectrum, Spectrum};
+use spectrum::{ConstantSpectrum, PiecewiseLinearSpectrum, Spectrum};
 
 mod brdf;
 mod bvh;
@@ -152,34 +152,53 @@ fn main() {
     objects.push(Arc::new(Sphere {
         origin: DVec3::new(
             (dragon_bounds.max.x - dragon_bounds.min.x) * 0.5,
-            (dragon_bounds.max.z - dragon_bounds.min.z) * 0.3,
+            (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
             (dragon_bounds.max.z - dragon_bounds.min.z) * 0.8,
         ),
         radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.3,
         material: Material {
             emission: spectrum::ZERO,
-            brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
-            // brdf: DielectricBrdf {
-            //     ior: ConstantSpectrum(1.5),
-            // },
+            // brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
+            brdf: DielectricBrdf { ior: ior_glass() },
         },
     }));
 
     let approx_model_size = (dragon_bounds.max - dragon_bounds.min).length() * 0.8;
 
     const N: usize = 100;
-    const S: u32 = 100000;
+    const S: u32 = 1000;
     for i in 0..1 {
-        let t = Instant::now();
+        let mut film = Film::new(853, 480);
+
         let yaw = i as f64 / N as f64 * PI * 2.0;
         let looking = DMat3::from_euler(EulerRot::YXZ, yaw - 0.3, -0.4, 0.0);
         let camera = approx_model_size * (looking * DVec3::Z + DVec3::new(0.0, 0.5, 0.0));
-        let (img, conf, var) = render(853/10, 480/10, S, &objects, camera, looking);
+
+        let t = Instant::now();
+        let mut last = 0;
+        for j in 10.. {
+            let to_render = S.min(j * j);
+            if to_render == last {
+                break;
+            }
+            render(&mut film, to_render - last, &objects, camera, looking);
+            last = to_render;
+
+            film.save(format!("partial/{j}.png"));
+
+            let d = t.elapsed();
+            println!(
+                "{to_render:>6}/{S} in {d:>6.2?} ({:.2} samples/sec) average conf: {}",
+                to_render as f64 / d.as_secs_f64(),
+                film.average_sterr_sq()
+            );
+        }
+
+        film.save("img.png");
+        film.save_conf("conf.png");
+
         let d = t.elapsed();
-        let efficiency = 1.0 / (var * d.as_secs_f64());
-        // save_final(&img, format!("i/{i}.png"));
-        save_final(&img, "img.png");
-        save_final(&conf, "conf.png");
+        let efficiency = 1.0 / (film.average_sterr_sq() * d.as_secs_f64());
         println!(
             "rendered frame {i} in {:.2?} ({:.2} samples/sec) with efficiency {efficiency}",
             d,
@@ -188,62 +207,114 @@ fn main() {
     }
 }
 
-fn save_final(img: &Rgb32FImage, path: impl AsRef<Path>) {
-    let mut out = RgbImage::new(img.width(), img.height());
-    for (o, i) in out.pixels_mut().zip(img.pixels()) {
-        o.0 = spectrum::xyz_to_srgb(Vec3::from_array(i.0).as_dvec3())
-            .to_array()
-            .map(|v| (v * 255.0).round() as u8);
+struct Film {
+    width: usize,
+    height: usize,
+    data: Box<[Pixel]>,
+}
+
+#[derive(Default)]
+struct Pixel {
+    mean: DVec3,
+    m2: DVec3,
+    count: f64,
+}
+
+impl Film {
+    fn new(width: usize, height: usize) -> Self {
+        Film {
+            width,
+            height,
+            data: std::iter::repeat_with(Default::default)
+                .take(width * height)
+                .collect(),
+        }
     }
-    out.save(path).unwrap();
+
+    fn save(&self, path: impl AsRef<Path>) {
+        let image = RgbImage::from_fn(self.width as u32, self.height as u32, |x, y| {
+            self.data[x as usize + y as usize * self.width]
+                .srgb()
+                .to_array()
+                .map(|v| (v * 255.0).round() as u8)
+                .into()
+        });
+        image.save(path).unwrap();
+    }
+
+    fn save_conf(&self, path: impl AsRef<Path>) {
+        let image = RgbImage::from_fn(self.width as u32, self.height as u32, |x, y| {
+            self.data[x as usize + y as usize * self.width]
+                .sterr_sq()
+                .to_array()
+                .map(|v| (v.sqrt() * 255.0).round() as u8)
+                .into()
+        });
+        image.save(path).unwrap();
+    }
+
+    fn par_iter_mut(&mut self) -> impl IndexedParallelIterator<Item = (usize, usize, &mut Pixel)> {
+        self.data.par_iter_mut().enumerate().map(|(i, p)| {
+            let x = i % self.width;
+            let y = i / self.width;
+            (x, y, p)
+        })
+    }
+
+    fn average_sterr_sq(&self) -> f64 {
+        self.data
+            .iter()
+            .map(|p| p.sterr_sq().element_sum())
+            .sum::<f64>()
+            / self.data.len() as f64
+            / 3.0
+    }
+}
+
+impl Pixel {
+    fn accumulate_sample(&mut self, value: DVec3) {
+        let delta = value - self.mean;
+        self.count += 1.0;
+        self.mean += delta / self.count;
+        let delta2 = value - self.mean;
+        self.m2 += delta * delta2;
+    }
+
+    fn srgb(&self) -> DVec3 {
+        spectrum::xyz_to_srgb(self.mean)
+    }
+
+    fn sterr_sq(&self) -> DVec3 {
+        self.m2 / (self.count - 1.0) / self.count
+    }
 }
 
 fn render(
-    width: u32,
-    height: u32,
+    film: &mut Film,
     samples: u32,
     objects: &[Arc<dyn Object>],
     camera: DVec3,
     looking: DMat3,
-) -> (Rgb32FImage, Rgb32FImage, f64) {
-    let mut image = Rgb32FImage::new(width, height);
-    let mut conf_image = Rgb32FImage::new(width, height);
-    let average_conf = image
-        .par_enumerate_pixels_mut()
-        .zip(conf_image.par_enumerate_pixels_mut())
-        .map(|((x, y, out), (_, _, conf))| {
-            let mut mean = DVec3::ZERO;
-            let mut m2 = DVec3::ZERO;
-            let mut count = 0.0;
-            for _ in 0..samples {
-                let x = x as f64 + thread_rng().gen::<f64>() - width as f64 / 2.0;
-                let y = y as f64 + thread_rng().gen::<f64>() - height as f64 / 2.0;
-                let d = DVec3::new(x / height as f64 * 2.0, -y / height as f64 * 2.0, -1.0);
-                let d = looking * d.normalize();
-                let lambda = thread_rng().gen_range(spectrum::VISIBLE);
-                let pdf = 1.0 / (spectrum::VISIBLE.end - spectrum::VISIBLE.start);
+) {
+    let width = film.width;
+    let height = film.height;
+    let fov = 2.0;
+    film.par_iter_mut().for_each(|(x, y, pixel)| {
+        for _ in 0..samples {
+            let x = x as f64 + thread_rng().gen::<f64>() - width as f64 / 2.0;
+            let y = y as f64 + thread_rng().gen::<f64>() - height as f64 / 2.0;
+            let d = DVec3::new(x / height as f64 * fov, -y / height as f64 * fov, -1.0);
+            let d = looking * d.normalize();
 
-                // let value = raycast_scene(objects, camera, d)
-                //     .map_or(DVec3::ZERO, |hit| hit.normal / 2.0 + 0.5);
+            let lambda = thread_rng().gen_range(spectrum::VISIBLE);
+            let pdf = 1.0 / (spectrum::VISIBLE.end - spectrum::VISIBLE.start);
 
-                let radiance = path_trace(objects, camera, d, lambda);
-                let value = radiance / pdf * spectrum::lambda_to_xyz(lambda);
-                let delta = value - mean;
-                count += 1.0;
-                mean += delta / count;
-                let delta2 = value - mean;
-                m2 += delta * delta2;
-            }
+            let radiance = path_trace(objects, camera, d, lambda);
+            let value = radiance / pdf * spectrum::lambda_to_xyz(lambda);
 
-            let sample_var_conf = m2 / (count - 1.0) / count;
-            out.0 = mean.as_vec3().to_array();
-            conf.0 = sample_var_conf.map(f64::sqrt).as_vec3().to_array();
-
-            sample_var_conf.element_sum() / 3.0
-        })
-        .sum::<f64>()
-        / (width * height) as f64;
-    (image, conf_image, average_conf)
+            pixel.accumulate_sample(value);
+        }
+    });
 }
 
 fn path_trace(objs: &[Arc<dyn Object>], pos: DVec3, dir: DVec3, lambda: f64) -> f64 {
@@ -253,14 +324,11 @@ fn path_trace(objs: &[Arc<dyn Object>], pos: DVec3, dir: DVec3, lambda: f64) -> 
     let mut pos = pos;
     let mut dir = dir;
 
+    let mut bounces = 0;
+
     while throughput != 0.0 {
         let Some(hit) = raycast_scene(objs, pos, dir) else {
-            let strength = if dir.dot(DVec3::new(0.2, 1.0, -0.3).normalize()) > 0.99 {
-                50.0
-            } else {
-                0.1
-            };
-            radiance += throughput * cie_d65().sample(lambda) * strength;
+            radiance += throughput * cie_d65().sample(lambda);
             break;
         };
 
@@ -282,13 +350,18 @@ fn path_trace(objs: &[Arc<dyn Object>], pos: DVec3, dir: DVec3, lambda: f64) -> 
             + hit.geo_normal * (f64::EPSILON * pos.abs().max_element() * 32.0 * offset_dir);
         dir = sample.dir;
 
-        if throughput < 0.5 {
+        if throughput < 0.5 || bounces > 20 {
+            if bounces > 20 {
+                bounces = 0;
+            }
             if thread_rng().gen_bool(0.5) {
                 break;
             } else {
                 throughput *= 2.0;
             }
         }
+
+        bounces += 1;
     }
 
     radiance
