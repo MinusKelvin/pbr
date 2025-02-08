@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
-use brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf};
+use brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf, ThinDielectricBrdf};
 use bvh::Bvh;
 use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot};
 use image::RgbImage;
@@ -13,6 +13,7 @@ use material::Material;
 use objects::{Object, RayHit, SetMaterial, Sphere, Transform, Triangle};
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
+use scene::Scene;
 use spectrum::physical::cie_d65;
 use spectrum::{ConstantSpectrum, PiecewiseLinearSpectrum, Spectrum};
 
@@ -22,6 +23,7 @@ mod material;
 mod objects;
 mod plymesh;
 mod random;
+mod scene;
 mod spectrum;
 
 fn main() {
@@ -51,43 +53,43 @@ fn main() {
     let cb_dragon = dragon_bounds.centroid().with_y(dragon_bounds.min.y);
     let cb_bunny = bunny_bounds.centroid().with_y(bunny_bounds.min.y);
 
-    let mut objects = vec![
-        Arc::new(Triangle {
-            a: DVec3::new(-10.0, 0.0, -10.0),
-            b: DVec3::new(10.0, 0.0, 10.0),
-            c: DVec3::new(10.0, 0.0, -10.0),
-            a_n: DVec3::Y,
-            b_n: DVec3::Y,
-            c_n: DVec3::Y,
-            material: Material {
-                emission: spectrum::ZERO,
-                brdf: LambertianBrdf {
-                    albedo: ConstantSpectrum(0.5),
-                },
+    let mut scene = Scene::new();
+
+    scene.add(Triangle {
+        a: DVec3::new(-10.0, 0.0, -10.0),
+        b: DVec3::new(10.0, 0.0, 10.0),
+        c: DVec3::new(10.0, 0.0, -10.0),
+        a_n: DVec3::Y,
+        b_n: DVec3::Y,
+        c_n: DVec3::Y,
+        material: Material {
+            emission: spectrum::ZERO,
+            brdf: LambertianBrdf {
+                albedo: ConstantSpectrum(0.5),
             },
-        }) as Arc<dyn Object>,
-        Arc::new(Triangle {
-            a: DVec3::new(10.0, 0.0, 10.0),
-            b: DVec3::new(-10.0, 0.0, -10.0),
-            c: DVec3::new(-10.0, 0.0, 10.0),
-            a_n: DVec3::Y,
-            b_n: DVec3::Y,
-            c_n: DVec3::Y,
-            material: Material {
-                emission: spectrum::ZERO,
-                brdf: LambertianBrdf {
-                    albedo: ConstantSpectrum(0.5),
-                },
+        },
+    });
+    scene.add(Triangle {
+        a: DVec3::new(10.0, 0.0, 10.0),
+        b: DVec3::new(-10.0, 0.0, -10.0),
+        c: DVec3::new(-10.0, 0.0, 10.0),
+        a_n: DVec3::Y,
+        b_n: DVec3::Y,
+        c_n: DVec3::Y,
+        material: Material {
+            emission: spectrum::ZERO,
+            brdf: LambertianBrdf {
+                albedo: ConstantSpectrum(0.5),
             },
-        }),
-    ];
+        },
+    });
 
     let t = Instant::now();
     let dragon = Arc::new(Bvh::build(dragon));
     let bunny = Arc::new(Bvh::build(bunny));
     println!("Took {:.2?} to build BVH", t.elapsed());
 
-    objects.push(Arc::new(SetMaterial {
+    scene.add(SetMaterial {
         material: Material {
             emission: spectrum::ZERO,
             // brdf: Arc::new(LambertianBrdf {
@@ -106,8 +108,8 @@ fn main() {
             ),
             dragon.clone(),
         ),
-    }));
-    objects.push(Arc::new(SetMaterial {
+    });
+    scene.add(SetMaterial {
         material: Material {
             emission: spectrum::ZERO,
             // brdf: Arc::new(LambertianBrdf {
@@ -124,20 +126,17 @@ fn main() {
             ),
             dragon.clone(),
         ),
-    }));
-    objects.push(Arc::new(Transform::new(
-        DMat4::from_translation(-cb_dragon),
-        dragon,
-    )));
-    objects.push(Arc::new(Transform::new(
+    });
+    scene.add(Transform::new(DMat4::from_translation(-cb_dragon), dragon));
+    scene.add(Transform::new(
         DMat4::from_scale_rotation_translation(
             DVec3::splat(2.0),
             DQuat::IDENTITY,
             DVec3::new(0.0, 0.0, dragon_bounds.min.x - dragon_bounds.max.x) - cb_bunny * 2.0,
         ),
         bunny,
-    )));
-    objects.push(Arc::new(Sphere {
+    ));
+    scene.add(Sphere {
         origin: DVec3::new(
             -(dragon_bounds.max.x - dragon_bounds.min.x) * 0.7,
             (dragon_bounds.max.z - dragon_bounds.min.z) * 0.3,
@@ -148,8 +147,8 @@ fn main() {
             emission: spectrum::ZERO,
             brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
         },
-    }));
-    objects.push(Arc::new(Sphere {
+    });
+    scene.add(Sphere {
         origin: DVec3::new(
             (dragon_bounds.max.x - dragon_bounds.min.x) * 0.5,
             (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
@@ -161,7 +160,7 @@ fn main() {
             // brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
             brdf: DielectricBrdf { ior: ior_glass() },
         },
-    }));
+    });
 
     let approx_model_size = (dragon_bounds.max - dragon_bounds.min).length() * 0.8;
 
@@ -176,12 +175,12 @@ fn main() {
 
         let t = Instant::now();
         let mut last = 0;
-        for j in 10.. {
-            let to_render = S.min(j * j);
+        for j in 1.. {
+            let to_render = S.min(1 << j);
             if to_render == last {
                 break;
             }
-            render(&mut film, to_render - last, &objects, camera, looking);
+            render(&mut film, to_render - last, &scene, camera, looking);
             last = to_render;
 
             film.save(format!("partial/{j}.png"));
@@ -244,11 +243,14 @@ impl Film {
 
     fn save_conf(&self, path: impl AsRef<Path>) {
         let image = RgbImage::from_fn(self.width as u32, self.height as u32, |x, y| {
-            self.data[x as usize + y as usize * self.width]
-                .sterr_sq()
-                .to_array()
-                .map(|v| (v.sqrt() * 255.0).round() as u8)
-                .into()
+            spectrum::xyz_to_srgb(
+                self.data[x as usize + y as usize * self.width]
+                    .sterr_sq()
+                    .map(f64::sqrt),
+            )
+            .to_array()
+            .map(|v| (v * 255.0).round() as u8)
+            .into()
         });
         image.save(path).unwrap();
     }
@@ -289,13 +291,7 @@ impl Pixel {
     }
 }
 
-fn render(
-    film: &mut Film,
-    samples: u32,
-    objects: &[Arc<dyn Object>],
-    camera: DVec3,
-    looking: DMat3,
-) {
+fn render(film: &mut Film, samples: u32, scene: &Scene, camera: DVec3, looking: DMat3) {
     let width = film.width;
     let height = film.height;
     let fov = 2.0;
@@ -309,7 +305,7 @@ fn render(
             let lambda = thread_rng().gen_range(spectrum::VISIBLE);
             let pdf = 1.0 / (spectrum::VISIBLE.end - spectrum::VISIBLE.start);
 
-            let radiance = path_trace(objects, camera, d, lambda);
+            let radiance = path_trace(scene, camera, d, lambda);
             let value = radiance / pdf * spectrum::lambda_to_xyz(lambda);
 
             pixel.accumulate_sample(value);
@@ -317,7 +313,7 @@ fn render(
     });
 }
 
-fn path_trace(objs: &[Arc<dyn Object>], pos: DVec3, dir: DVec3, lambda: f64) -> f64 {
+fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambda: f64) -> f64 {
     let mut throughput = 1.0;
     let mut radiance = 0.0;
 
@@ -327,7 +323,7 @@ fn path_trace(objs: &[Arc<dyn Object>], pos: DVec3, dir: DVec3, lambda: f64) -> 
     let mut bounces = 0;
 
     while throughput != 0.0 {
-        let Some(hit) = raycast_scene(objs, pos, dir) else {
+        let Some(hit) = scene.raycast(pos, dir) else {
             radiance += throughput * cie_d65().sample(lambda);
             break;
         };
@@ -365,21 +361,6 @@ fn path_trace(objs: &[Arc<dyn Object>], pos: DVec3, dir: DVec3, lambda: f64) -> 
     }
 
     radiance
-}
-
-fn raycast_scene(objs: &[Arc<dyn Object>], origin: DVec3, direction: DVec3) -> Option<RayHit> {
-    let mut closest = None;
-    for obj in objs {
-        if let Some(hit) = obj.raycast(origin, direction) {
-            if closest
-                .as_ref()
-                .is_none_or(|old: &RayHit| hit.t < old.t - hit.normal.dot(direction) * 1.0e-12)
-            {
-                closest = Some(hit);
-            }
-        }
-    }
-    closest
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -252,7 +252,60 @@ impl<S: Spectrum> Brdf for DielectricBrdf<S> {
             BrdfSample {
                 dir: refracted,
                 pdf: 1.0 - fresnel_reflect,
-                f: (1.0 - fresnel_reflect) / refracted.dot(normal).abs(),
+                f: (1.0 - fresnel_reflect) / refracted.dot(normal).abs() / (ior * ior),
+            }
+        }
+    }
+
+    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
+        _ = incoming;
+        _ = outgoing;
+        _ = normal;
+        _ = lambda;
+        0.0
+    }
+}
+
+#[derive(Clone)]
+pub struct ThinDielectricBrdf<S> {
+    pub ior: S,
+}
+
+impl<S: Spectrum> Brdf for ThinDielectricBrdf<S> {
+    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
+        _ = incoming;
+        _ = outgoing;
+        _ = normal;
+        _ = lambda;
+        0.0
+    }
+
+    fn sample(&self, outgoing: DVec3, mut normal: DVec3, lambda: f64, random: DVec3) -> BrdfSample {
+        _ = random;
+        let ior = self.ior.sample(lambda);
+        if outgoing.dot(normal) > 0.0 {
+            normal = -normal;
+        }
+
+        let reflected = outgoing.reflect(normal);
+        let cos_i = reflected.dot(normal);
+        let mut fresnel_reflect = fresnel_reflectance_real(cos_i, ior);
+        if fresnel_reflect < 1.0 {
+            let t = 1.0 - fresnel_reflect;
+            fresnel_reflect += t * t * fresnel_reflect / (1.0 - fresnel_reflect * fresnel_reflect);
+        }
+
+        if random.z < fresnel_reflect {
+            BrdfSample {
+                dir: reflected,
+                pdf: fresnel_reflect,
+                f: fresnel_reflect / cos_i,
+            }
+        } else {
+            BrdfSample {
+                dir: outgoing,
+                pdf: 1.0 - fresnel_reflect,
+                f: (1.0 - fresnel_reflect) / cos_i,
             }
         }
     }
