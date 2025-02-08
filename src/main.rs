@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf, ThinDielectricBrdf};
 use bvh::Bvh;
-use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot};
+use glam::{DMat3, DMat4, DQuat, DVec3, DVec4, EulerRot};
 use image::RgbImage;
 use material::physical::ior_glass;
 use material::Material;
@@ -303,39 +303,57 @@ fn render(film: &mut Film, samples: u32, scene: &Scene, camera: DVec3, looking: 
             let d = looking * d.normalize();
 
             let lambda = thread_rng().gen_range(spectrum::VISIBLE);
-            let pdf = 1.0 / (spectrum::VISIBLE.end - spectrum::VISIBLE.start);
+            let r = spectrum::VISIBLE.end - spectrum::VISIBLE.start;
+            let pdf = 1.0 / r;
+            let lambdas = DVec4::new(
+                lambda,
+                (lambda + r / 4.0 - spectrum::VISIBLE.start) % r + spectrum::VISIBLE.start,
+                (lambda + 2.0 * r / 4.0 - spectrum::VISIBLE.start) % r + spectrum::VISIBLE.start,
+                (lambda + 3.0 * r / 4.0 - spectrum::VISIBLE.start) % r + spectrum::VISIBLE.start,
+            );
 
-            let radiance = path_trace(scene, camera, d, lambda);
-            let value = radiance / pdf * spectrum::lambda_to_xyz(lambda);
+            let radiance = path_trace(scene, camera, d, lambdas);
+            let mut value = DVec3::ZERO;
+            for i in 0..4 {
+                value += (radiance[i] / pdf / 4.0) * spectrum::lambda_to_xyz(lambdas[i]);
+            }
 
             pixel.accumulate_sample(value);
         }
     });
 }
 
-fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambda: f64) -> f64 {
-    let mut throughput = 1.0;
-    let mut radiance = 0.0;
-
+fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambdas: DVec4) -> DVec4 {
+    let mut throughput = DVec4::ONE;
+    let mut radiance = DVec4::ZERO;
+    let mut secondary_terminated = false;
     let mut pos = pos;
     let mut dir = dir;
 
     let mut bounces = 0;
 
-    while throughput != 0.0 {
+    while throughput != DVec4::ZERO {
         let Some(hit) = scene.raycast(pos, dir) else {
-            radiance += throughput * cie_d65().sample(lambda);
+            radiance += throughput * cie_d65().sample_multi(lambdas);
             break;
         };
 
-        radiance += throughput * hit.material.emission_sample(lambda);
+        radiance += throughput * hit.material.emission_sample(lambdas);
 
         let sample = hit
             .material
-            .brdf_sample(dir, hit.normal, lambda, thread_rng().gen());
+            .brdf_sample(dir, hit.normal, lambdas, thread_rng().gen());
 
         if sample.dir == DVec3::ZERO {
             break;
+        }
+
+        if sample.terminate_secondary && !secondary_terminated {
+            throughput.x *= 4.0;
+            throughput.y = 0.0;
+            throughput.z = 0.0;
+            throughput.w = 0.0;
+            secondary_terminated = true;
         }
 
         let cos_theta = sample.dir.dot(hit.normal).abs();
@@ -346,7 +364,7 @@ fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambda: f64) -> f64 {
             + hit.geo_normal * (f64::EPSILON * pos.abs().max_element() * 32.0 * offset_dir);
         dir = sample.dir;
 
-        if throughput < 0.5 || bounces > 20 {
+        if throughput.max_element() < 0.5 || bounces > 20 {
             if bounces > 20 {
                 bounces = 0;
             }

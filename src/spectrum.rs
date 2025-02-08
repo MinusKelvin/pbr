@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::ops::Range;
 use std::sync::LazyLock;
 
-use glam::{DMat3, DVec3, FloatExt};
+use glam::{DMat3, DVec3, DVec4, FloatExt};
 use ordered_float::OrderedFloat;
 
 pub mod physical;
@@ -10,6 +10,10 @@ pub mod rgb;
 
 pub trait Spectrum {
     fn sample(&self, lambda: f64) -> f64;
+
+    fn sample_multi(&self, lambdas: DVec4) -> DVec4 {
+        lambdas.map(|l| self.sample(l))
+    }
 }
 
 impl<S: Spectrum> Spectrum for &S {
