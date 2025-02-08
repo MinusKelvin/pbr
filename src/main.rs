@@ -11,6 +11,7 @@ use image::RgbImage;
 use material::physical::ior_glass;
 use material::Material;
 use objects::{Object, RayHit, SetMaterial, Sphere, Transform, Triangle};
+use ordered_float::OrderedFloat;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use scene::Scene;
@@ -176,20 +177,22 @@ fn main() {
         let t = Instant::now();
         let mut last = 0;
         for j in 1.. {
-            let to_render = S.min(1 << j);
+            let to_render = S.min(2.0f64.powf(j as f64 / 2.0).round() as u32);
             if to_render == last {
                 break;
             }
             render(&mut film, to_render - last, &scene, camera, looking);
             last = to_render;
 
-            film.save(format!("partial/{j}.png"));
+            film.save(format!("partial/{to_render}.png"));
 
             let d = t.elapsed();
             println!(
-                "{to_render:>6}/{S} in {d:>6.2?} ({:.2} samples/sec) average conf: {}",
+                "{:>6}/{S} in {d:>8.2?} {:>6.2} samples/sec   {:>7.5} avg   {:>7.5} max",
+                to_render,
                 to_render as f64 / d.as_secs_f64(),
-                film.average_sterr_sq()
+                film.average_sterr_sq().sqrt(),
+                film.max_sterr_sq().sqrt()
             );
         }
 
@@ -269,6 +272,16 @@ impl Film {
             .map(|p| p.sterr_sq().element_sum())
             .sum::<f64>()
             / self.data.len() as f64
+            / 3.0
+    }
+
+    fn max_sterr_sq(&self) -> f64 {
+        self.data
+            .iter()
+            .map(|p| OrderedFloat(p.sterr_sq().element_sum()))
+            .max()
+            .unwrap()
+            .0
             / 3.0
     }
 }
