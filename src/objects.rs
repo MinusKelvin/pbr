@@ -14,7 +14,7 @@ pub struct RayHit<'a> {
 
 pub trait Object: Send + Sync {
     fn bounds(&self) -> Bounds;
-    fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit>;
+    fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit>;
 }
 
 pub struct Sphere<E, B> {
@@ -27,7 +27,7 @@ impl<E, B> Object for Sphere<E, B>
 where
     Material<E, B>: MaterialErased,
 {
-    fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
+    fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit> {
         let origin = origin - self.origin;
         // radius = sqrt(lengthsq(o + t*d))
         // radius^2 = sum_i (o[i] + t*d[i])^2
@@ -56,6 +56,10 @@ where
             true => t0,
             false => t1,
         };
+
+        if t > max_t {
+            return None;
+        }
 
         let normal = (origin + t * direction).normalize();
         Some(RayHit {
@@ -88,7 +92,7 @@ impl<E, B> Object for Triangle<E, B>
 where
     Material<E, B>: MaterialErased,
 {
-    fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
+    fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit> {
         let n = (self.c - self.b).cross(self.a - self.b);
 
         if n.length_squared() == 0.0 {
@@ -134,7 +138,7 @@ where
 
         let t = (a.z * e_a + b.z * e_b + c.z * e_c) * scale / d.z;
 
-        if t < 0.0 {
+        if t < 0.0 || t > max_t {
             return None;
         }
 
@@ -197,11 +201,11 @@ impl Object for Transform {
             .unwrap()
     }
 
-    fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
+    fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit> {
         let orig_transformed = self.inverse.transform_point3(origin);
         let dir_transformed = self.inverse.transform_vector3(direction);
         self.obj
-            .raycast(orig_transformed, dir_transformed)
+            .raycast(orig_transformed, dir_transformed, max_t)
             .map(|mut hit| {
                 hit.normal = self.transform.transform_vector3(hit.normal).normalize();
                 hit.geo_normal = self.transform.transform_vector3(hit.geo_normal).normalize();
@@ -223,8 +227,8 @@ where
         self.obj.bounds()
     }
 
-    fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
-        self.obj.raycast(origin, direction).map(|hit| RayHit {
+    fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit> {
+        self.obj.raycast(origin, direction, max_t).map(|hit| RayHit {
             material: &self.material,
             ..hit
         })

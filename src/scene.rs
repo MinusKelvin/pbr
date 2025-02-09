@@ -17,10 +17,10 @@ impl Scene {
         self.objects.push(obj.into());
     }
 
-    pub fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
+    pub fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit> {
         let mut closest = None;
         for obj in &self.objects {
-            if let Some(hit) = obj.raycast(origin, direction) {
+            if let Some(hit) = obj.raycast(origin, direction, max_t) {
                 if closest
                     .as_ref()
                     .is_none_or(|old: &RayHit| hit.t < old.t - hit.normal.dot(direction) * 1.0e-12)

@@ -74,10 +74,10 @@ impl Object for Bvh {
         self.root.bounds
     }
 
-    fn raycast(&self, origin: DVec3, direction: DVec3) -> Option<RayHit> {
+    fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit> {
         let mut stack = vec![&self.root];
         let mut closest = None;
-        let mut t_hit = f64::INFINITY;
+        let mut t_hit = max_t;
 
         while let Some(node) = stack.pop() {
             let Some((_, _)) = node.bounds.ray_intersect(origin, direction, t_hit) else {
@@ -86,7 +86,7 @@ impl Object for Bvh {
 
             match node.children {
                 BvhChildren::Leaf(index) => {
-                    if let Some(hit) = self.objs[index].raycast(origin, direction) {
+                    if let Some(hit) = self.objs[index].raycast(origin, direction, max_t) {
                         if hit.t < t_hit - hit.normal.dot(direction) * 1.0e-12 {
                             t_hit = hit.t;
                             closest = Some(hit);

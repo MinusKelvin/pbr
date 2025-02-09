@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use core::f64;
 use std::f64::consts::PI;
 use std::path::Path;
@@ -346,7 +348,7 @@ fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambdas: DVec4) -> DVec4 {
     let mut bounces = 0;
 
     while throughput != DVec4::ZERO {
-        let Some(hit) = scene.raycast(pos, dir) else {
+        let Some(hit) = scene.raycast(pos, dir, f64::INFINITY) else {
             radiance += throughput * cie_d65().sample_multi(lambdas);
             break;
         };
