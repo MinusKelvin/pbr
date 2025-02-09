@@ -8,6 +8,7 @@ use ordered_float::OrderedFloat;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use scene::Scene;
+use spectrum::Spectrum;
 
 mod brdf;
 mod bvh;
@@ -222,7 +223,10 @@ fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambdas: DVec4) -> DVec4 {
             radiance += throughput * scene.light_emission(pos, dir, lambdas, max_t);
         }
 
-        let Some(hit) = hit else { break };
+        let Some(hit) = hit else {
+            radiance += throughput * spectrum::physical::cie_d65().sample_multi(lambdas) * 0.03;
+            break;
+        };
 
         let hit_pos = pos + dir * hit.t;
 
