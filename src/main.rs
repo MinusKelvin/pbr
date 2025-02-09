@@ -1,6 +1,5 @@
 #![allow(unused)]
 
-use core::f64;
 use std::f64::consts::PI;
 use std::path::Path;
 use std::sync::Arc;
@@ -10,6 +9,7 @@ use brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf, ThinDielectricBr
 use bvh::Bvh;
 use glam::{DMat3, DMat4, DQuat, DVec3, DVec4, EulerRot};
 use image::RgbImage;
+use light::DistantDiskLight;
 use material::physical::ior_glass;
 use material::Material;
 use objects::{Object, RayHit, SetMaterial, Sphere, Transform, Triangle};
@@ -18,10 +18,11 @@ use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use scene::Scene;
 use spectrum::physical::cie_d65;
-use spectrum::{ConstantSpectrum, PiecewiseLinearSpectrum, Spectrum};
+use spectrum::{AmplifiedSpectrum, ConstantSpectrum, PiecewiseLinearSpectrum, Spectrum};
 
 mod brdf;
 mod bvh;
+mod light;
 mod material;
 mod objects;
 mod plymesh;
@@ -157,12 +158,21 @@ fn main() {
             (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
             (dragon_bounds.max.z - dragon_bounds.min.z) * 0.8,
         ),
-        radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.3,
+        radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
         material: Material {
             emission: spectrum::ZERO,
             // brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
             brdf: DielectricBrdf { ior: ior_glass() },
         },
+    });
+
+    scene.add_light(DistantDiskLight {
+        emission: AmplifiedSpectrum {
+            factor: 25.0,
+            s: cie_d65(),
+        },
+        dir: DVec3::new(-1.0, 0.5, -0.3).normalize(),
+        cos_radius: 10f64.to_radians().cos(),
     });
 
     let approx_model_size = (dragon_bounds.max - dragon_bounds.min).length() * 0.8;
@@ -190,9 +200,9 @@ fn main() {
 
             let d = t.elapsed();
             println!(
-                "{:>6}/{S} in {d:>8.2?} {:>6.2} samples/sec   {:>7.5} avg   {:>7.5} max",
+                "{:>6}/{S} in {d:>8.2?} {:>12.2} paths/sec   {:>8.5} avg   {:>8.5} max",
                 to_render,
-                to_render as f64 / d.as_secs_f64(),
+                film.num_paths() / d.as_secs_f64(),
                 film.average_sterr_sq().sqrt(),
                 film.max_sterr_sq().sqrt()
             );
@@ -204,9 +214,9 @@ fn main() {
         let d = t.elapsed();
         let efficiency = 1.0 / (film.average_sterr_sq() * d.as_secs_f64());
         println!(
-            "rendered frame {i} in {:.2?} ({:.2} samples/sec) with efficiency {efficiency}",
+            "rendered frame {i} in {:.2?} ({:.2} paths/sec) with efficiency {efficiency}",
             d,
-            S as f64 / d.as_secs_f64()
+            film.num_paths() / d.as_secs_f64()
         );
     }
 }
@@ -286,6 +296,10 @@ impl Film {
             .0
             / 3.0
     }
+
+    fn num_paths(&self) -> f64 {
+        self.data.iter().map(|p| p.count).sum()
+    }
 }
 
 impl Pixel {
@@ -347,13 +361,37 @@ fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambdas: DVec4) -> DVec4 {
 
     let mut bounces = 0;
 
+    let mut singular_bounce = true;
+
     while throughput != DVec4::ZERO {
-        let Some(hit) = scene.raycast(pos, dir, f64::INFINITY) else {
-            radiance += throughput * cie_d65().sample_multi(lambdas);
-            break;
-        };
+        let hit = scene.raycast(pos, dir, f64::INFINITY);
+
+        if singular_bounce {
+            let max_t = hit.as_ref().map_or(f64::INFINITY, |h| h.t);
+            radiance += throughput * scene.light_emission(pos, dir, lambdas, max_t);
+        }
+
+        let Some(hit) = hit else { break };
+
+        let hit_pos = pos + dir * hit.t;
 
         radiance += throughput * hit.material.emission_sample(lambdas);
+
+        if let Some((light, pdf)) = scene.sample_light(hit_pos, lambdas, thread_rng().gen()) {
+            let sample = light.sample(pos, lambdas, thread_rng().gen());
+
+            let f = hit.material.brdf_f(sample.dir, dir, hit.normal, lambdas)
+                * sample.emission
+                * sample.dir.dot(hit.normal).abs();
+
+            if f != DVec4::ZERO {
+                let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(sample.dir).signum());
+                let hit2 = scene.raycast(hit_pos + offset, sample.dir, sample.dist);
+                if hit2.is_none() {
+                    radiance += throughput * f / pdf / sample.pdf;
+                }
+            }
+        }
 
         let sample = hit
             .material
@@ -374,10 +412,10 @@ fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambdas: DVec4) -> DVec4 {
         let cos_theta = sample.dir.dot(hit.normal).abs();
         throughput *= sample.f * cos_theta / sample.pdf;
 
-        let offset_dir = hit.geo_normal.dot(sample.dir).signum();
-        pos += dir * hit.t
-            + hit.geo_normal * (f64::EPSILON * pos.abs().max_element() * 32.0 * offset_dir);
+        let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(sample.dir).signum());
+        pos = hit_pos + offset;
         dir = sample.dir;
+        singular_bounce = sample.singular;
 
         if throughput.max_element() < 0.5 || bounces > 20 {
             if bounces > 20 {

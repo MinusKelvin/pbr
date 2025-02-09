@@ -90,6 +90,18 @@ impl Spectrum for PiecewiseLinearSpectrum {
     }
 }
 
+#[derive(Clone)]
+pub struct AmplifiedSpectrum<S> {
+    pub factor: f64,
+    pub s: S,
+}
+
+impl<S: Spectrum> Spectrum for AmplifiedSpectrum<S> {
+    fn sample(&self, lambda: f64) -> f64 {
+        self.s.sample(lambda) * self.factor
+    }
+}
+
 const SRGB_TO_XYZ_T: DMat3 = DMat3::from_cols_array_2d(&[
     [0.4124, 0.3576, 0.1805],
     [0.2126, 0.7152, 0.0722],

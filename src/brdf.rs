@@ -11,6 +11,7 @@ pub struct BrdfSample {
     pub pdf: f64,
     pub f: DVec4,
     pub terminate_secondary: bool,
+    pub singular: bool,
 }
 
 pub trait Brdf {
@@ -47,6 +48,7 @@ pub trait Brdf {
             pdf: self.pdf(incoming, outgoing, normal, lambdas.x),
             f: self.f(incoming, outgoing, normal, lambdas),
             terminate_secondary: false,
+            singular: false,
         }
     }
 
@@ -60,7 +62,7 @@ pub trait Brdf {
     fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
         _ = outgoing;
         _ = lambda;
-        incoming.dot(normal) / PI
+        incoming.dot(normal).max(0.0) / PI
     }
 
     fn name(&self) -> &'static str {
@@ -76,7 +78,7 @@ pub struct LambertianBrdf<S> {
 impl<S: Spectrum> Brdf for LambertianBrdf<S> {
     fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambdas: DVec4) -> DVec4 {
         _ = incoming;
-        if outgoing.dot(normal) > 0.0 {
+        if incoming.dot(normal) < 0.0 {
             return DVec4::ZERO;
         }
         self.albedo.sample_multi(lambdas) / PI
@@ -91,6 +93,9 @@ pub struct PhongSpecularBrdf<S> {
 
 impl<S: Spectrum> Brdf for PhongSpecularBrdf<S> {
     fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambdas: DVec4) -> DVec4 {
+        if outgoing.dot(normal) > 0.0 || incoming.dot(normal) < 0.0 {
+            return DVec4::ZERO;
+        }
         let reflect = outgoing.reflect(normal);
         self.albedo.sample_multi(lambdas) * (self.power + 2.0) / (2.0 * PI)
             * incoming.dot(reflect).max(0.0).powf(self.power)
@@ -114,6 +119,7 @@ impl<S: Spectrum> Brdf for PhongSpecularBrdf<S> {
             pdf: self.pdf(incoming, outgoing, normal, lambdas.x),
             f: self.f(incoming, outgoing, normal, lambdas),
             terminate_secondary: false,
+            singular: false,
         }
     }
 
@@ -132,7 +138,9 @@ pub struct PhongRetroBrdf<S> {
 
 impl<S: Spectrum> Brdf for PhongRetroBrdf<S> {
     fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = normal;
+        if outgoing.dot(normal) > 0.0 || incoming.dot(normal) < 0.0 {
+            return DVec4::ZERO;
+        }
         let retro = -outgoing;
         self.albedo.sample_multi(lambdas) * (self.power + 2.0) / (2.0 * PI)
             * incoming.dot(retro).max(0.0).powf(self.power)
@@ -156,6 +164,7 @@ impl<S: Spectrum> Brdf for PhongRetroBrdf<S> {
             pdf: self.pdf(incoming, outgoing, normal, lambdas.x),
             f: self.f(incoming, outgoing, normal, lambdas),
             terminate_secondary: false,
+            singular: false,
         }
     }
 
@@ -200,6 +209,7 @@ impl<Sr: Spectrum, Si: Spectrum> Brdf for SmoothConductorBrdf<Sr, Si> {
                 pdf: 0.0,
                 f: DVec4::ZERO,
                 terminate_secondary: false,
+                singular: true,
             };
         }
         let incoming = outgoing.reflect(normal);
@@ -214,6 +224,7 @@ impl<Sr: Spectrum, Si: Spectrum> Brdf for SmoothConductorBrdf<Sr, Si> {
             pdf: 1.0,
             f: fresnel / cos_i,
             terminate_secondary: false,
+            singular: true,
         }
     }
 
@@ -257,6 +268,7 @@ impl<S: Spectrum> Brdf for DielectricBrdf<S> {
                 pdf: fresnel_reflect.x,
                 f: fresnel_reflect / cos_i,
                 terminate_secondary: false,
+                singular: true,
             }
         } else {
             let refracted = outgoing.refract(normal, 1.0 / ior.x);
@@ -267,6 +279,7 @@ impl<S: Spectrum> Brdf for DielectricBrdf<S> {
                     (1.0 - fresnel_reflect.x) / refracted.dot(normal).abs() / (ior.x * ior.x),
                 ),
                 terminate_secondary: true,
+                singular: true,
             }
         }
     }
@@ -320,6 +333,7 @@ impl<S: Spectrum> Brdf for ThinDielectricBrdf<S> {
                 pdf: fresnel_reflect.x,
                 f: fresnel_reflect / cos_i,
                 terminate_secondary: false,
+                singular: true,
             }
         } else {
             BrdfSample {
@@ -327,6 +341,7 @@ impl<S: Spectrum> Brdf for ThinDielectricBrdf<S> {
                 pdf: 1.0 - fresnel_reflect.x,
                 f: (1.0 - fresnel_reflect) / cos_i,
                 terminate_secondary: false,
+                singular: true,
             }
         }
     }
