@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use glam::{BVec3, DMat4, DVec3, Vec3Swizzles};
 
-use crate::material::{Material, MaterialErased};
+use crate::material::MaterialErased;
 use crate::Bounds;
 
 pub struct RayHit<'a> {
@@ -17,16 +17,23 @@ pub trait Object: Send + Sync {
     fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit>;
 }
 
-pub struct Sphere<E, B> {
-    pub origin: DVec3,
-    pub radius: f64,
-    pub material: Material<E, B>,
+impl<O: Object> Object for Arc<O> {
+    fn bounds(&self) -> Bounds {
+        O::bounds(self)
+    }
+
+    fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit> {
+        O::raycast(self, origin, direction, max_t)
+    }
 }
 
-impl<E, B> Object for Sphere<E, B>
-where
-    Material<E, B>: MaterialErased,
-{
+pub struct Sphere<M> {
+    pub origin: DVec3,
+    pub radius: f64,
+    pub material: M,
+}
+
+impl<M: MaterialErased> Object for Sphere<M> {
     fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit> {
         let origin = origin - self.origin;
         // radius = sqrt(lengthsq(o + t*d))
@@ -78,20 +85,17 @@ where
     }
 }
 
-pub struct Triangle<E, B> {
+pub struct Triangle<M> {
     pub a: DVec3,
     pub b: DVec3,
     pub c: DVec3,
     pub a_n: DVec3,
     pub b_n: DVec3,
     pub c_n: DVec3,
-    pub material: Material<E, B>,
+    pub material: M,
 }
 
-impl<E, B> Object for Triangle<E, B>
-where
-    Material<E, B>: MaterialErased,
-{
+impl<M: MaterialErased> Object for Triangle<M> {
     fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit> {
         let n = (self.c - self.b).cross(self.a - self.b);
 
@@ -172,14 +176,14 @@ where
     }
 }
 
-pub struct Transform {
+pub struct Transform<O> {
     transform: DMat4,
     inverse: DMat4,
-    obj: Arc<dyn Object>,
+    obj: O,
 }
 
-impl Transform {
-    pub fn new(transform: DMat4, obj: Arc<dyn Object>) -> Self {
+impl<O> Transform<O> {
+    pub fn new(transform: DMat4, obj: O) -> Self {
         Transform {
             inverse: transform.inverse(),
             transform,
@@ -188,7 +192,7 @@ impl Transform {
     }
 }
 
-impl Object for Transform {
+impl<O: Object> Object for Transform<O> {
     fn bounds(&self) -> Bounds {
         let obj_bounds = self.obj.bounds();
         (0..8)
@@ -214,23 +218,22 @@ impl Object for Transform {
     }
 }
 
-pub struct SetMaterial<O, E, B> {
-    pub material: Material<E, B>,
+pub struct SetMaterial<O, M> {
+    pub material: M,
     pub obj: O,
 }
 
-impl<O: Object, E, B> Object for SetMaterial<O, E, B>
-where
-    Material<E, B>: MaterialErased,
-{
+impl<O: Object, M: MaterialErased> Object for SetMaterial<O, M> {
     fn bounds(&self) -> Bounds {
         self.obj.bounds()
     }
 
     fn raycast(&self, origin: DVec3, direction: DVec3, max_t: f64) -> Option<RayHit> {
-        self.obj.raycast(origin, direction, max_t).map(|hit| RayHit {
-            material: &self.material,
-            ..hit
-        })
+        self.obj
+            .raycast(origin, direction, max_t)
+            .map(|hit| RayHit {
+                material: &self.material,
+                ..hit
+            })
     }
 }

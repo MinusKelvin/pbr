@@ -8,7 +8,7 @@ use ordered_float::OrderedFloat;
 pub mod physical;
 pub mod rgb;
 
-pub trait Spectrum {
+pub trait Spectrum: Send + Sync {
     fn sample(&self, lambda: f64) -> f64;
 
     fn sample_multi(&self, lambdas: DVec4) -> DVec4 {
@@ -112,7 +112,7 @@ pub fn xyz_to_srgb(xyz: DVec3) -> DVec3 {
     static XYZ_TO_SRGB_MATRIX: LazyLock<DMat3> =
         LazyLock::new(|| SRGB_TO_XYZ_T.transpose().inverse());
 
-    let srgb_linear = (*XYZ_TO_SRGB_MATRIX * xyz).clamp(DVec3::ZERO, DVec3::ONE);
+    let srgb_linear = *XYZ_TO_SRGB_MATRIX * xyz;
     let low = srgb_linear * 12.92;
     let high = srgb_linear.powf(1.0 / 2.4) * 1.055 - 0.055;
     DVec3::select(srgb_linear.cmplt(DVec3::splat(0.0031308)), low, high)

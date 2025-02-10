@@ -3,10 +3,11 @@ use std::time::Instant;
 
 use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot};
 
-use crate::brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf};
+use crate::brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf, ThinDielectricBrdf};
 use crate::bvh::Bvh;
 use crate::light::DistantDiskLight;
 use crate::material::Material;
+use crate::medium::{SimpleUniformMedium, Vacuum};
 use crate::scene::Scene;
 use crate::{material, plymesh, spectrum};
 use crate::objects::{SetMaterial, Sphere, Transform, Triangle};
@@ -23,6 +24,8 @@ pub fn load() -> (Scene, DVec3, DMat3) {
             // },
             // brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
             brdf: DielectricBrdf { ior: material::physical::ior_glass() },
+            enter_medium: Vacuum,
+            exit_medium: Vacuum,
         },
     )
     .unwrap();
@@ -31,6 +34,8 @@ pub fn load() -> (Scene, DVec3, DMat3) {
         &Material {
             emission: spectrum::ZERO,
             brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
+            enter_medium: Vacuum,
+            exit_medium: Vacuum,
         },
     )
     .unwrap();
@@ -53,6 +58,8 @@ pub fn load() -> (Scene, DVec3, DMat3) {
             brdf: LambertianBrdf {
                 albedo: ConstantSpectrum(0.5),
             },
+            enter_medium: Vacuum,
+            exit_medium: Vacuum,
         },
     });
     scene.add(Triangle {
@@ -67,6 +74,8 @@ pub fn load() -> (Scene, DVec3, DMat3) {
             brdf: LambertianBrdf {
                 albedo: ConstantSpectrum(0.5),
             },
+            enter_medium: Vacuum,
+            exit_medium: Vacuum,
         },
     });
 
@@ -85,6 +94,8 @@ pub fn load() -> (Scene, DVec3, DMat3) {
             // brdf: DielectricBrdf {
             //     ior: ConstantSpectrum(1.5),
             // },
+            enter_medium: Vacuum,
+            exit_medium: Vacuum,
         },
         obj: Transform::new(
             DMat4::from_scale_rotation_translation(
@@ -102,6 +113,8 @@ pub fn load() -> (Scene, DVec3, DMat3) {
             //     albedo: DVec3::new(0.25, 0.25, 1.0),
             // }),
             brdf: SmoothConductorBrdf::new(material::physical::ior_copper()),
+            enter_medium: Vacuum,
+            exit_medium: Vacuum,
         },
         obj: Transform::new(
             DMat4::from_scale_rotation_translation(
@@ -132,6 +145,8 @@ pub fn load() -> (Scene, DVec3, DMat3) {
         material: Material {
             emission: spectrum::ZERO,
             brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
+            enter_medium: Vacuum,
+            exit_medium: Vacuum,
         },
     });
     scene.add(Sphere {
@@ -144,7 +159,13 @@ pub fn load() -> (Scene, DVec3, DMat3) {
         material: Material {
             emission: spectrum::ZERO,
             // brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
-            brdf: DielectricBrdf { ior: material::physical::ior_glass() },
+            brdf: ThinDielectricBrdf { ior: material::physical::ior_glass() },
+            enter_medium: SimpleUniformMedium {
+                absorption: spectrum::ZERO,
+                emission: spectrum::ZERO,
+                scattering: spectrum::ConstantSpectrum(10.0),
+            },
+            exit_medium: Vacuum,
         },
     });
 

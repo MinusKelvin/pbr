@@ -3,17 +3,14 @@ use std::sync::Arc;
 
 use glam::{DVec3, Vec3};
 
-use crate::material::{Material, MaterialErased};
+use crate::material::MaterialErased;
 use crate::objects::{Object, Triangle};
 use crate::Bounds;
 
-pub fn load_plymesh<E: 'static, B: 'static>(
+pub fn load_plymesh<M: MaterialErased + Clone + 'static>(
     reader: impl Read,
-    material: &Material<E, B>,
-) -> Result<(Vec<Arc<dyn Object>>, Bounds), Error>
-where
-    Material<E, B>: MaterialErased + Clone,
-{
+    material: &M,
+) -> Result<(Vec<Arc<dyn Object>>, Bounds), Error> {
     let mut reader = LineReader {
         reader: BufReader::new(reader),
         line: String::new(),

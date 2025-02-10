@@ -1,9 +1,12 @@
+use std::f64::consts::PI;
+use std::ops::ControlFlow;
 use std::path::Path;
 use std::time::Instant;
 
 use clap::Parser;
-use glam::{DMat3, DVec3, DVec4};
+use glam::{DMat3, DVec3, DVec4, Vec4Swizzles};
 use image::RgbImage;
+use medium::{Medium, Vacuum};
 use ordered_float::OrderedFloat;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
@@ -14,6 +17,7 @@ mod brdf;
 mod bvh;
 mod light;
 mod material;
+mod medium;
 mod objects;
 mod plymesh;
 mod random;
@@ -101,6 +105,7 @@ impl Film {
         let image = RgbImage::from_fn(self.width as u32, self.height as u32, |x, y| {
             self.data[x as usize + y as usize * self.width]
                 .srgb()
+                .clamp(DVec3::ZERO, DVec3::ONE)
                 .to_array()
                 .map(|v| (v * 255.0).round() as u8)
                 .into()
@@ -210,17 +215,60 @@ fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambdas: DVec4) -> DVec4 {
     let mut secondary_terminated = false;
     let mut pos = pos;
     let mut dir = dir;
+    let mut medium = &Vacuum as &dyn Medium;
 
     let mut bounces = 0;
 
-    let mut singular_bounce = true;
+    let mut specular_bounce = true;
 
-    while throughput != DVec4::ZERO {
+    'mainloop: while throughput != DVec4::ZERO {
         let hit = scene.raycast(pos, dir, f64::INFINITY);
+        let d = hit.as_ref().map_or(f64::INFINITY, |hit| hit.t);
 
-        if singular_bounce {
-            let max_t = hit.as_ref().map_or(f64::INFINITY, |h| h.t);
-            radiance += throughput * scene.light_emission(pos, dir, lambdas, max_t);
+        if medium.participating() {
+            let majorant = match secondary_terminated {
+                true => medium.majorant(lambdas.xxxx()),
+                false => medium.majorant(lambdas),
+            };
+            let mut t = 0.0;
+            loop {
+                let dt = -(1.0 - thread_rng().gen::<f64>()).ln() / majorant;
+                t += dt;
+                if t >= d {
+                    break;
+                }
+
+                let p = pos + t * dir;
+                let pr_absorption = medium.absorption(p, dir, lambdas) / majorant;
+                let pr_scattering = medium.scattering(p, dir, lambdas) / majorant;
+                let pr_null = 1.0 - pr_absorption - pr_scattering;
+
+                let rng: f64 = thread_rng().gen();
+                if rng < pr_absorption.x {
+                    throughput *= pr_absorption / pr_absorption.x;
+                    radiance += throughput * medium.emission(p, dir, lambdas);
+                    break 'mainloop;
+                } else if rng < pr_absorption.x + pr_scattering.x {
+                    throughput *= pr_scattering / pr_scattering.x;
+
+                    let new_dir = random::sphere(thread_rng().gen());
+                    let new_dir_pdf = 1.0 / (4.0 * PI);
+
+                    throughput *= medium.phase(pos, dir, new_dir, lambdas) / new_dir_pdf;
+                    pos = p;
+                    dir = new_dir;
+                    // since we don't light sample at scattering events
+                    specular_bounce = true;
+
+                    continue 'mainloop;
+                } else {
+                    throughput *= pr_null / pr_null.x;
+                }
+            }
+        }
+
+        if specular_bounce {
+            radiance += throughput * scene.light_emission(pos, dir, lambdas, d);
         }
 
         let Some(hit) = hit else {
@@ -242,6 +290,8 @@ fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambdas: DVec4) -> DVec4 {
             if f != DVec4::ZERO {
                 let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(sample.dir).signum());
                 let hit2 = scene.raycast(hit_pos + offset, sample.dir, sample.dist);
+                // TODO: medium transmittance
+                // TODO: change of medium if light sample transmits
                 if hit2.is_none() {
                     radiance += throughput * f / pdf / sample.pdf;
                 }
@@ -264,13 +314,20 @@ fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambdas: DVec4) -> DVec4 {
             secondary_terminated = true;
         }
 
+        if dir.dot(sample.dir) > 0.0 {
+            medium = match sample.dir.dot(hit.geo_normal) > 0.0 {
+                true => hit.material.exit_medium(),
+                false => hit.material.enter_medium(),
+            };
+        }
+
         let cos_theta = sample.dir.dot(hit.normal).abs();
         throughput *= sample.f * cos_theta / sample.pdf;
 
         let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(sample.dir).signum());
         pos = hit_pos + offset;
         dir = sample.dir;
-        singular_bounce = sample.singular;
+        specular_bounce = sample.singular;
 
         if throughput.max_element() < 0.5 || bounces > 20 {
             if bounces > 20 {

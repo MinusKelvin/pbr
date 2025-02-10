@@ -14,7 +14,7 @@ pub struct BrdfSample {
     pub singular: bool,
 }
 
-pub trait Brdf {
+pub trait Brdf: Send + Sync {
     /// Returns the amount of light reflected from the incoming direction to the outgoing
     /// direction.
     ///
