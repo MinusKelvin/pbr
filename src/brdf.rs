@@ -4,7 +4,7 @@ use glam::{DVec2, DVec3, DVec4, FloatExt, Vec3Swizzles};
 use num::complex::Complex64;
 
 use crate::random;
-use crate::spectrum::{ConstantSpectrum, Spectrum};
+use crate::spectrum::Spectrum;
 
 pub struct BrdfSample {
     pub dir: DVec3,
@@ -78,6 +78,7 @@ pub struct LambertianBrdf<S> {
 impl<S: Spectrum> Brdf for LambertianBrdf<S> {
     fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambdas: DVec4) -> DVec4 {
         _ = incoming;
+        _ = outgoing;
         if incoming.dot(normal) < 0.0 {
             return DVec4::ZERO;
         }

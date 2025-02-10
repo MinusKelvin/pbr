@@ -6,6 +6,7 @@ use glam::{DMat3, DVec3, DVec4, FloatExt};
 use ordered_float::OrderedFloat;
 
 pub mod physical;
+#[allow(unused)]
 pub mod rgb;
 
 pub trait Spectrum: Send + Sync {
@@ -25,7 +26,6 @@ impl<S: Spectrum> Spectrum for &S {
 pub const VISIBLE: Range<f64> = 360.0..830.0;
 
 pub const ZERO: ConstantSpectrum = ConstantSpectrum(0.0);
-pub const ONE: ConstantSpectrum = ConstantSpectrum(1.0);
 
 #[derive(Clone, Copy)]
 pub struct ConstantSpectrum(pub f64);

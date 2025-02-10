@@ -1,9 +1,8 @@
-use std::f64::consts::{PI, TAU};
+use std::f64::consts::PI;
 
-use glam::{DVec3, DVec4, FloatExt, Vec3Swizzles};
+use glam::{DVec3, DVec4, FloatExt};
 
-use crate::random;
-use crate::spectrum::{AmplifiedSpectrum, Spectrum};
+use crate::spectrum::Spectrum;
 
 pub struct LightSample {
     pub dir: DVec3,
@@ -24,24 +23,6 @@ pub struct DistantDiskLight<S> {
     pub emission: S,
     pub dir: DVec3,
     pub cos_radius: f64,
-}
-
-impl<S> DistantDiskLight<S> {
-    pub fn new_fixed_brightness(
-        dir: DVec3,
-        radius: f64,
-        spectrum: S,
-    ) -> DistantDiskLight<AmplifiedSpectrum<S>> {
-        let cos_radius = radius.cos();
-        DistantDiskLight {
-            emission: AmplifiedSpectrum {
-                factor: PI / 2.0 / radius,
-                s: spectrum,
-            },
-            dir,
-            cos_radius,
-        }
-    }
 }
 
 impl<S: Spectrum + Send + Sync> Light for DistantDiskLight<S> {

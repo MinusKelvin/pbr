@@ -66,6 +66,7 @@ impl Medium for Vacuum {
     }
 }
 
+#[derive(Clone)]
 pub struct SimpleUniformMedium<Sa, Se, Ss> {
     pub absorption: Sa,
     pub emission: Se,

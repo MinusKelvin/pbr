@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use crate::spectrum::{PiecewiseLinearSpectrum, VISIBLE};
+use crate::spectrum::PiecewiseLinearSpectrum;
 
 use super::Spectrum;
 

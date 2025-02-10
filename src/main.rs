@@ -1,12 +1,11 @@
 use std::f64::consts::PI;
-use std::ops::ControlFlow;
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clap::Parser;
 use glam::{DMat3, DVec3, DVec4, Vec4Swizzles};
 use image::RgbImage;
-use medium::{Medium, Vacuum};
+use medium::Medium;
 use ordered_float::OrderedFloat;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
@@ -38,7 +37,7 @@ struct Options {
 fn main() {
     let opt = Options::parse();
 
-    let (scene, camera, looking) = scene_description::load();
+    let (scene, camera, looking, camera_medium) = scene_description::load();
 
     let mut film = Film::new(opt.width, opt.height);
 
@@ -49,16 +48,24 @@ fn main() {
         if to_render == last {
             break;
         }
-        render(&mut film, to_render - last, &scene, camera, looking);
+        render(
+            &mut film,
+            to_render - last,
+            &scene,
+            camera,
+            looking,
+            &camera_medium,
+        );
         last = to_render;
 
         film.save(format!("partial/{to_render}.png"));
 
         let d = t.elapsed();
         println!(
-            "{:>8}/{} in {d:>8.2?} {:>12.2} paths/sec   {:>8.5} avg   {:>8.5} max",
+            "{:>8}/{} in {:>8.2} {:>12.2} paths/sec   {:>8.5} avg   {:>8.5} max",
             to_render,
             opt.samples,
+            Time(d),
             film.num_paths() / d.as_secs_f64(),
             film.average_sterr_sq().sqrt(),
             film.max_sterr_sq().sqrt()
@@ -177,7 +184,14 @@ impl Pixel {
     }
 }
 
-fn render(film: &mut Film, samples: u32, scene: &Scene, camera: DVec3, looking: DMat3) {
+fn render(
+    film: &mut Film,
+    samples: u32,
+    scene: &Scene,
+    camera: DVec3,
+    looking: DMat3,
+    camera_medium: &dyn Medium,
+) {
     let width = film.width;
     let height = film.height;
     let fov = 2.0;
@@ -198,7 +212,7 @@ fn render(film: &mut Film, samples: u32, scene: &Scene, camera: DVec3, looking: 
                 (lambda + 3.0 * r / 4.0 - spectrum::VISIBLE.start) % r + spectrum::VISIBLE.start,
             );
 
-            let radiance = path_trace(scene, camera, d, lambdas);
+            let radiance = path_trace(scene, camera, d, lambdas, camera_medium);
             let mut value = DVec3::ZERO;
             for i in 0..4 {
                 value += (radiance[i] / pdf / 4.0) * spectrum::lambda_to_xyz(lambdas[i]);
@@ -209,13 +223,19 @@ fn render(film: &mut Film, samples: u32, scene: &Scene, camera: DVec3, looking: 
     });
 }
 
-fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambdas: DVec4) -> DVec4 {
+fn path_trace(
+    scene: &Scene,
+    pos: DVec3,
+    dir: DVec3,
+    lambdas: DVec4,
+    camera_medium: &dyn Medium,
+) -> DVec4 {
     let mut throughput = DVec4::ONE;
     let mut radiance = DVec4::ZERO;
     let mut secondary_terminated = false;
     let mut pos = pos;
     let mut dir = dir;
-    let mut medium = &Vacuum as &dyn Medium;
+    let mut medium = camera_medium;
 
     let mut bounces = 0;
 
@@ -280,23 +300,23 @@ fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambdas: DVec4) -> DVec4 {
 
         radiance += throughput * hit.material.emission_sample(lambdas);
 
-        if let Some((light, pdf)) = scene.sample_light(hit_pos, lambdas, thread_rng().gen()) {
-            let sample = light.sample(pos, lambdas, thread_rng().gen());
+        // if let Some((light, pdf)) = scene.sample_light(hit_pos, lambdas, thread_rng().gen()) {
+        //     let sample = light.sample(pos, lambdas, thread_rng().gen());
 
-            let f = hit.material.brdf_f(sample.dir, dir, hit.normal, lambdas)
-                * sample.emission
-                * sample.dir.dot(hit.normal).abs();
+        //     let f = hit.material.brdf_f(sample.dir, dir, hit.normal, lambdas)
+        //         * sample.emission
+        //         * sample.dir.dot(hit.normal).abs();
 
-            if f != DVec4::ZERO {
-                let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(sample.dir).signum());
-                let hit2 = scene.raycast(hit_pos + offset, sample.dir, sample.dist);
-                // TODO: medium transmittance
-                // TODO: change of medium if light sample transmits
-                if hit2.is_none() {
-                    radiance += throughput * f / pdf / sample.pdf;
-                }
-            }
-        }
+        //     if f != DVec4::ZERO {
+        //         let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(sample.dir).signum());
+        //         let hit2 = scene.raycast(hit_pos + offset, sample.dir, sample.dist);
+        //         // TODO: medium transmittance
+        //         // TODO: change of medium if light sample transmits
+        //         if hit2.is_none() {
+        //             radiance += throughput * f / pdf / sample.pdf;
+        //         }
+        //     }
+        // }
 
         let sample = hit
             .material
@@ -327,7 +347,7 @@ fn path_trace(scene: &Scene, pos: DVec3, dir: DVec3, lambdas: DVec4) -> DVec4 {
         let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(sample.dir).signum());
         pos = hit_pos + offset;
         dir = sample.dir;
-        specular_bounce = sample.singular;
+        specular_bounce = true; //sample.singular;
 
         if throughput.max_element() < 0.5 || bounces > 20 {
             if bounces > 20 {
@@ -388,5 +408,45 @@ impl FromIterator<DVec3> for Bounds {
             .map(Bounds::point)
             .reduce(Bounds::union)
             .unwrap()
+    }
+}
+
+struct Time(Duration);
+
+impl std::fmt::Display for Time {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let secs = self.0.as_secs_f64();
+        let width = f.width().unwrap_or(0);
+        if secs < 1.0 {
+            match f.precision() {
+                Some(prec) => write!(
+                    f,
+                    "{:w$.prec$}ms",
+                    secs * 1000.0,
+                    w = width.saturating_sub(2)
+                ),
+                None => write!(f, "{:w$}ms", secs * 1000.0, w = width.saturating_sub(2)),
+            }
+        } else if secs < 60.0 {
+            match f.precision() {
+                Some(prec) => write!(f, "{:w$.prec$}s", secs, w = width.saturating_sub(1)),
+                None => write!(f, "{:w$}s", secs, w = width.saturating_sub(1)),
+            }
+        } else if secs < 3600.0 {
+            match f.precision() {
+                Some(prec) => write!(f, "{:w$.prec$}m", secs / 60.0, w = width.saturating_sub(1)),
+                None => write!(f, "{:w$}m", secs / 60.0, w = width.saturating_sub(1)),
+            }
+        } else {
+            match f.precision() {
+                Some(prec) => write!(
+                    f,
+                    "{:w$.prec$}hr",
+                    secs / 3600.0,
+                    w = width.saturating_sub(2)
+                ),
+                None => write!(f, "{:w$}hr", secs / 3600.0, w = width.saturating_sub(2)),
+            }
+        }
     }
 }

@@ -7,13 +7,19 @@ use crate::brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf, ThinDiele
 use crate::bvh::Bvh;
 use crate::light::DistantDiskLight;
 use crate::material::Material;
-use crate::medium::{SimpleUniformMedium, Vacuum};
+use crate::medium::{Medium, SimpleUniformMedium, Vacuum};
 use crate::scene::Scene;
 use crate::{material, plymesh, spectrum};
 use crate::objects::{SetMaterial, Sphere, Transform, Triangle};
 use crate::spectrum::{AmplifiedSpectrum, ConstantSpectrum};
 
-pub fn load() -> (Scene, DVec3, DMat3) {
+pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
+    let atmosphere = SimpleUniformMedium {
+        absorption: spectrum::ZERO,
+        emission: spectrum::ZERO,
+        scattering: ConstantSpectrum(1.0),
+    };
+
     let t = Instant::now();
     let (dragon, dragon_bounds) = plymesh::load_plymesh(
         std::fs::File::open("models/dragon_vrip.ply").unwrap(),
@@ -25,7 +31,7 @@ pub fn load() -> (Scene, DVec3, DMat3) {
             // brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
             brdf: DielectricBrdf { ior: material::physical::ior_glass() },
             enter_medium: Vacuum,
-            exit_medium: Vacuum,
+            exit_medium: atmosphere.clone(),
         },
     )
     .unwrap();
@@ -158,15 +164,28 @@ pub fn load() -> (Scene, DVec3, DMat3) {
         radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
         material: Material {
             emission: spectrum::ZERO,
-            // brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
+            // brdf: DielectricBrdf { ior: material::physical::ior_glass() },
+            // enter_medium: Vacuum,
             brdf: ThinDielectricBrdf { ior: material::physical::ior_glass() },
             enter_medium: SimpleUniformMedium {
                 absorption: spectrum::ZERO,
                 emission: spectrum::ZERO,
                 scattering: spectrum::ConstantSpectrum(10.0),
             },
-            exit_medium: Vacuum,
+            exit_medium: atmosphere.clone(),
         },
+    });
+    scene.add(Sphere {
+        origin: DVec3::ZERO,
+        radius: 1.0,
+        material: Material {
+            emission: spectrum::ZERO,
+            brdf: ThinDielectricBrdf {
+                ior: ConstantSpectrum(1.0),
+            },
+            enter_medium: atmosphere.clone(),
+            exit_medium: Vacuum,
+        }
     });
 
     scene.add_light(DistantDiskLight {
@@ -182,8 +201,8 @@ pub fn load() -> (Scene, DVec3, DMat3) {
 
     let scale = (dragon_bounds.max - dragon_bounds.min).length() * 0.8;
 
-    let looking = DMat3::from_euler(EulerRot::YXZ, -0.3, -0.4, 0.0);
+    let looking = DMat3::from_euler(EulerRot::YXZ, -0.4, -0.4, 0.0);
     let camera = scale * (looking * DVec3::Z + DVec3::new(0.0, 0.5, 0.0));
 
-    (scene, camera, looking)
+    (scene, camera, looking, atmosphere)
 }
