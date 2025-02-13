@@ -10,7 +10,6 @@ use ordered_float::OrderedFloat;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use scene::Scene;
-use spectrum::Spectrum;
 
 mod brdf;
 mod bvh;
@@ -23,6 +22,7 @@ mod random;
 mod scene;
 mod scene_description;
 mod spectrum;
+mod path_trace;
 
 #[derive(clap::Parser)]
 struct Options {
@@ -37,7 +37,7 @@ struct Options {
 fn main() {
     let opt = Options::parse();
 
-    let (scene, camera, looking, camera_medium) = scene_description::load();
+    let (scene, camera, looking, camera_medium) = scene_description::simple_volume_scene();
 
     let mut film = Film::new(opt.width, opt.height);
 
@@ -212,7 +212,7 @@ fn render(
                 (lambda + 3.0 * r / 4.0 - spectrum::VISIBLE.start) % r + spectrum::VISIBLE.start,
             );
 
-            let radiance = path_trace(scene, camera, d, lambdas, camera_medium);
+            let radiance = path_trace::path_trace(scene, camera, d, lambdas, camera_medium);
             let mut value = DVec3::ZERO;
             for i in 0..4 {
                 value += (radiance[i] / pdf / 4.0) * spectrum::lambda_to_xyz(lambdas[i]);
@@ -221,149 +221,6 @@ fn render(
             pixel.accumulate_sample(value);
         }
     });
-}
-
-fn path_trace(
-    scene: &Scene,
-    pos: DVec3,
-    dir: DVec3,
-    lambdas: DVec4,
-    camera_medium: &dyn Medium,
-) -> DVec4 {
-    let mut throughput = DVec4::ONE;
-    let mut radiance = DVec4::ZERO;
-    let mut secondary_terminated = false;
-    let mut pos = pos;
-    let mut dir = dir;
-    let mut medium = camera_medium;
-
-    let mut bounces = 0;
-
-    let mut specular_bounce = true;
-
-    'mainloop: while throughput != DVec4::ZERO {
-        let hit = scene.raycast(pos, dir, f64::INFINITY);
-        let d = hit.as_ref().map_or(f64::INFINITY, |hit| hit.t);
-
-        if medium.participating() {
-            let majorant = match secondary_terminated {
-                true => medium.majorant(lambdas.xxxx()),
-                false => medium.majorant(lambdas),
-            };
-            let mut t = 0.0;
-            loop {
-                let dt = -(1.0 - thread_rng().gen::<f64>()).ln() / majorant;
-                t += dt;
-                if t >= d {
-                    break;
-                }
-
-                let p = pos + t * dir;
-                let pr_absorption = medium.absorption(p, dir, lambdas) / majorant;
-                let pr_scattering = medium.scattering(p, dir, lambdas) / majorant;
-                let pr_null = 1.0 - pr_absorption - pr_scattering;
-
-                let rng: f64 = thread_rng().gen();
-                if rng < pr_absorption.x {
-                    throughput *= pr_absorption / pr_absorption.x;
-                    radiance += throughput * medium.emission(p, dir, lambdas);
-                    break 'mainloop;
-                } else if rng < pr_absorption.x + pr_scattering.x {
-                    throughput *= pr_scattering / pr_scattering.x;
-
-                    let new_dir = random::sphere(thread_rng().gen());
-                    let new_dir_pdf = 1.0 / (4.0 * PI);
-
-                    throughput *= medium.phase(pos, dir, new_dir, lambdas) / new_dir_pdf;
-                    pos = p;
-                    dir = new_dir;
-                    // since we don't light sample at scattering events
-                    specular_bounce = true;
-
-                    continue 'mainloop;
-                } else {
-                    throughput *= pr_null / pr_null.x;
-                }
-            }
-        }
-
-        if specular_bounce {
-            radiance += throughput * scene.light_emission(pos, dir, lambdas, d);
-        }
-
-        let Some(hit) = hit else {
-            radiance += throughput * spectrum::physical::cie_d65().sample_multi(lambdas) * 0.03;
-            break;
-        };
-
-        let hit_pos = pos + dir * hit.t;
-
-        radiance += throughput * hit.material.emission_sample(lambdas);
-
-        // if let Some((light, pdf)) = scene.sample_light(hit_pos, lambdas, thread_rng().gen()) {
-        //     let sample = light.sample(pos, lambdas, thread_rng().gen());
-
-        //     let f = hit.material.brdf_f(sample.dir, dir, hit.normal, lambdas)
-        //         * sample.emission
-        //         * sample.dir.dot(hit.normal).abs();
-
-        //     if f != DVec4::ZERO {
-        //         let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(sample.dir).signum());
-        //         let hit2 = scene.raycast(hit_pos + offset, sample.dir, sample.dist);
-        //         // TODO: medium transmittance
-        //         // TODO: change of medium if light sample transmits
-        //         if hit2.is_none() {
-        //             radiance += throughput * f / pdf / sample.pdf;
-        //         }
-        //     }
-        // }
-
-        let sample = hit
-            .material
-            .brdf_sample(dir, hit.normal, lambdas, thread_rng().gen());
-
-        if sample.dir == DVec3::ZERO {
-            break;
-        }
-
-        if sample.terminate_secondary && !secondary_terminated {
-            throughput.x *= 4.0;
-            throughput.y = 0.0;
-            throughput.z = 0.0;
-            throughput.w = 0.0;
-            secondary_terminated = true;
-        }
-
-        if dir.dot(sample.dir) > 0.0 {
-            medium = match sample.dir.dot(hit.geo_normal) > 0.0 {
-                true => hit.material.exit_medium(),
-                false => hit.material.enter_medium(),
-            };
-        }
-
-        let cos_theta = sample.dir.dot(hit.normal).abs();
-        throughput *= sample.f * cos_theta / sample.pdf;
-
-        let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(sample.dir).signum());
-        pos = hit_pos + offset;
-        dir = sample.dir;
-        specular_bounce = true; //sample.singular;
-
-        if throughput.max_element() < 0.5 || bounces > 20 {
-            if bounces > 20 {
-                bounces = 0;
-            }
-            if thread_rng().gen_bool(0.5) {
-                break;
-            } else {
-                throughput *= 2.0;
-            }
-        }
-
-        bounces += 1;
-    }
-
-    radiance
 }
 
 #[derive(Clone, Copy, Debug)]
