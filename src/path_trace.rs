@@ -80,14 +80,34 @@ pub fn path_trace(
 
                     throughput *= pr_scattering / pr_scattering.x;
 
+                    if let Some((light, pdf)) = scene.sample_light(p, lambdas, thread_rng().gen()) {
+                        let sample = light.sample(p, lambdas, thread_rng().gen());
+
+                        let tp_f = throughput
+                            * medium.phase(p, sample.dir, dir, lambdas)
+                            * sample.emission;
+
+                        if tp_f != DVec4::ZERO {
+                            let transmittance = transmittance(
+                                scene,
+                                p,
+                                sample.dir,
+                                lambdas,
+                                secondary_terminated,
+                                medium,
+                                sample.dist,
+                            );
+                            radiance += tp_f * transmittance / (pdf * sample.pdf);
+                        }
+                    }
+
                     let new_dir = random::sphere(thread_rng().gen());
                     let new_dir_pdf = 1.0 / (4.0 * PI);
 
                     throughput *= medium.phase(pos, dir, new_dir, lambdas) / new_dir_pdf;
                     pos = p;
                     dir = new_dir;
-                    // since we don't light sample at scattering events
-                    specular_bounce = true;
+                    specular_bounce = false;
 
                     continue 'mainloop;
                 } else {
