@@ -29,7 +29,7 @@ trait Maybe<T: ?Sized>: Send + Sync {
     fn get(&self) -> Option<&T>;
 }
 
-impl<T> Maybe<T> for () {
+impl<T: ?Sized> Maybe<T> for () {
     fn get(&self) -> Option<&T> {
         None
     }
@@ -47,7 +47,9 @@ impl<'a, M: Medium + 'a> Maybe<dyn Medium + 'a> for M {
     }
 }
 
-impl<E: Spectrum, B: Maybe<dyn Brdf>, Mi: Medium, Mo: Medium> MaterialErased for Material<E, B, Mi, Mo> {
+impl<E: Spectrum, B: Maybe<dyn Brdf>, Mi: Maybe<dyn Medium>, Mo: Maybe<dyn Medium>> MaterialErased
+    for Material<E, B, Mi, Mo>
+{
     fn emission_sample(&self, lambdas: DVec4) -> DVec4 {
         self.emission.sample_multi(lambdas)
     }
@@ -57,36 +59,18 @@ impl<E: Spectrum, B: Maybe<dyn Brdf>, Mi: Medium, Mo: Medium> MaterialErased for
     }
 
     fn enter_medium(&self) -> &dyn Medium {
-        &self.enter_medium
+        self.enter_medium
+            .get()
+            .expect("transmitting non-transmissive surface")
     }
 
     fn exit_medium(&self) -> &dyn Medium {
-        &self.exit_medium
+        self.exit_medium
+            .get()
+            .expect("transmitting non-transmissive surface")
     }
 
     fn name(&self) -> &'static str {
         self.brdf.get().map_or("none", Brdf::name)
-    }
-}
-
-impl<E: Spectrum, Mi: Medium, Mo: Medium> MaterialErased for Material<E, (), Mi, Mo> {
-    fn emission_sample(&self, lambdas: DVec4) -> DVec4 {
-        self.emission.sample_multi(lambdas)
-    }
-
-    fn brdf(&self) -> Option<&dyn Brdf> {
-        None
-    }
-
-    fn enter_medium(&self) -> &dyn Medium {
-        &self.enter_medium
-    }
-
-    fn exit_medium(&self) -> &dyn Medium {
-        &self.exit_medium
-    }
-
-    fn name(&self) -> &'static str {
-        "None"
     }
 }

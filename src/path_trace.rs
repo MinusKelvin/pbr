@@ -25,14 +25,6 @@ pub fn path_trace(
 
     let mut specular_bounce = true;
 
-    if !secondary_terminated {
-        throughput.x *= 4.0;
-        throughput.y = 0.0;
-        throughput.z = 0.0;
-        throughput.w = 0.0;
-        secondary_terminated = true;
-    }
-
     'mainloop: while throughput != DVec4::ZERO {
         let hit = scene.raycast(pos, dir, f64::INFINITY);
         let d = hit.as_ref().map_or(f64::INFINITY, |hit| hit.t);
@@ -176,7 +168,7 @@ pub fn path_trace(
             specular_bounce = sample.singular;
         }
 
-        let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(dir).signum());
+        let offset = hit.geo_normal * (1e-6 * hit.geo_normal.dot(dir).signum());
         pos = hit_pos + offset;
 
         if old_dir.dot(hit.geo_normal).signum() == dir.dot(hit.geo_normal).signum() {

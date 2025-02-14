@@ -1,9 +1,8 @@
-use std::f64::consts::PI;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use clap::Parser;
-use glam::{DMat3, DVec3, DVec4, Vec4Swizzles};
+use glam::{DMat3, DVec3, DVec4};
 use image::RgbImage;
 use medium::Medium;
 use ordered_float::OrderedFloat;
@@ -37,7 +36,7 @@ struct Options {
 fn main() {
     let opt = Options::parse();
 
-    let (scene, camera, looking, camera_medium) = scene_description::simple_volume_scene();
+    let (scene, camera, looking, camera_medium) = scene_description::atmosphere_scene();
 
     let mut film = Film::new(opt.width, opt.height);
 
@@ -136,6 +135,15 @@ impl Film {
 
     fn par_iter_mut(&mut self) -> impl IndexedParallelIterator<Item = (usize, usize, &mut Pixel)> {
         self.data.par_iter_mut().enumerate().map(|(i, p)| {
+            let x = i % self.width;
+            let y = i / self.width;
+            (x, y, p)
+        })
+    }
+
+    #[allow(unused)]
+    fn iter_mut(&mut self) -> impl Iterator<Item = (usize, usize, &mut Pixel)> {
+        self.data.iter_mut().enumerate().map(|(i, p)| {
             let x = i % self.width;
             let y = i / self.width;
             (x, y, p)
