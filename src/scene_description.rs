@@ -1,13 +1,17 @@
+use std::f64::consts::PI;
 use std::sync::Arc;
 use std::time::Instant;
 
-use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot};
+use glam::{DMat3, DMat4, DQuat, DVec3, DVec4, EulerRot};
+use rand::{thread_rng, Rng};
 
-use crate::brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf, ThinDielectricBrdf};
+use crate::brdf::{Brdf, DielectricBrdf, LambertianBrdf, SmoothConductorBrdf, ThinDielectricBrdf};
 use crate::bvh::Bvh;
 use crate::light::DistantDiskLight;
 use crate::material::Material;
-use crate::medium::{Atmosphere, Medium, TestMedium, Vacuum};
+use crate::medium::{
+    AtmosphereMie, AtmosphereRayleigh, CombinedMedium, Medium, TestMedium, Vacuum,
+};
 use crate::objects::{SetMaterial, Sphere, Transform, Triangle};
 use crate::scene::Scene;
 use crate::spectrum::{AmplifiedSpectrum, ConstantSpectrum, PiecewiseLinearSpectrum};
@@ -281,16 +285,25 @@ pub fn simple_volume_scene() -> (Scene, DVec3, DMat3, impl Medium) {
     (scene, camera, looking, Vacuum)
 }
 
-pub fn atmosphere_scene() -> (Scene, DVec3, DMat3, impl Medium) {
+pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
     let mut scene = Scene::new();
 
     const PLANET_RADIUS: f64 = 6371000.0;
     const HEIGHT_SCALE: f64 = 8000.0;
 
-    let atmosphere = Atmosphere {
-        base_level: PLANET_RADIUS,
-        origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),
-        height_scale: HEIGHT_SCALE,
+    let atmosphere = CombinedMedium {
+        m1: AtmosphereRayleigh {
+            origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),
+            sea_level: PLANET_RADIUS,
+            height_scale: HEIGHT_SCALE,
+        },
+        m2: AtmosphereMie {
+            origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),
+            sea_level: PLANET_RADIUS,
+            height_scale: HEIGHT_SCALE * 0.15,
+            sea_level_density: 2e-5,
+            g: 0.76,
+        },
     };
 
     scene.add(Sphere {
@@ -299,7 +312,7 @@ pub fn atmosphere_scene() -> (Scene, DVec3, DMat3, impl Medium) {
         material: Material {
             emission: spectrum::ZERO,
             brdf: LambertianBrdf {
-                albedo: ConstantSpectrum(0.5),
+                albedo: ConstantSpectrum(0.1),
             },
             enter_medium: (),
             exit_medium: (),
@@ -314,15 +327,15 @@ pub fn atmosphere_scene() -> (Scene, DVec3, DMat3, impl Medium) {
             brdf: (),
             enter_medium: atmosphere.clone(),
             exit_medium: Vacuum,
-        }
+        },
     });
 
     scene.add_light(DistantDiskLight {
         emission: AmplifiedSpectrum {
-            factor: 100000.0,
+            factor: 50000.0,
             s: spectrum::physical::cie_d65(),
         },
-        dir: DVec3::new(0.0, 0.03, -1.0).normalize(),
+        dir: DVec3::new(0.0, sun_angle.sin(), -sun_angle.cos()).normalize(),
         cos_radius: 0.268f64.to_radians().cos(),
     });
 

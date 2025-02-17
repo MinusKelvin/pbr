@@ -30,6 +30,9 @@ pub fn path_trace(
         let d = hit.as_ref().map_or(f64::INFINITY, |hit| hit.t);
 
         if medium.participating() {
+            if hit.is_none() {
+                panic!("can't exit participating medium?");
+            }
             if !secondary_terminated {
                 throughput.x *= 4.0;
                 throughput.y = 0.0;
@@ -93,10 +96,10 @@ pub fn path_trace(
                         }
                     }
 
-                    let new_dir = random::sphere(thread_rng().gen());
-                    let new_dir_pdf = 1.0 / (4.0 * PI);
+                    let new_dir = medium.sample_phase(p, dir, lambdas, thread_rng().gen());
+                    let new_dir_pdf = medium.pdf_phase(p, new_dir, dir, lambdas);
 
-                    throughput *= medium.phase(pos, dir, new_dir, lambdas) / new_dir_pdf;
+                    throughput *= medium.phase(p, new_dir, dir, lambdas) / new_dir_pdf;
                     pos = p;
                     dir = new_dir;
                     specular_bounce = false;
@@ -133,7 +136,7 @@ pub fn path_trace(
                     * sample.dir.dot(hit.normal).abs();
 
                 if tp_f != DVec4::ZERO {
-                    let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(sample.dir).signum());
+                    let offset = hit.geo_normal * (1e-6 * hit.geo_normal.dot(sample.dir).signum());
                     let transmittance = transmittance(
                         scene,
                         hit_pos + offset,
@@ -207,6 +210,9 @@ fn transmittance<'a>(
     let mut transmittance = DVec4::ONE;
     while d > 0.0 {
         let Some(hit) = scene.raycast(pos, dir, d) else {
+            if medium.participating() {
+                panic!("can't exit participating medium?");
+            }
             break;
         };
 
@@ -235,7 +241,7 @@ fn transmittance<'a>(
         }
 
         d -= hit.t;
-        let offset = hit.geo_normal * (1e-10 * hit.geo_normal.dot(dir).signum());
+        let offset = hit.geo_normal * (1e-6 * hit.geo_normal.dot(dir).signum());
         pos += hit.t * dir + offset;
 
         medium = match dir.dot(hit.geo_normal) > 0.0 {

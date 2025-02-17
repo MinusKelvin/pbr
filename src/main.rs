@@ -16,12 +16,12 @@ mod light;
 mod material;
 mod medium;
 mod objects;
+mod path_trace;
 mod plymesh;
 mod random;
 mod scene;
 mod scene_description;
 mod spectrum;
-mod path_trace;
 
 #[derive(clap::Parser)]
 struct Options {
@@ -31,12 +31,15 @@ struct Options {
     height: usize,
     #[arg(short, default_value_t = 128)]
     samples: u32,
+    #[arg(long, default_value_t = 1.0, allow_negative_numbers(true))]
+    sun_angle: f64,
 }
 
 fn main() {
     let opt = Options::parse();
 
-    let (scene, camera, looking, camera_medium) = scene_description::atmosphere_scene();
+    let (scene, camera, looking, camera_medium) =
+        scene_description::atmosphere_scene(opt.sun_angle);
 
     let mut film = Film::new(opt.width, opt.height);
 

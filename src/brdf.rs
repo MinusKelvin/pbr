@@ -39,8 +39,7 @@ pub trait Brdf: Send + Sync {
         _ = outgoing;
         let d = random::disk(random.xy());
         let z = (1.0 - d.length_squared()).sqrt();
-        let tangent = normal.cross(outgoing).normalize();
-        let bitangent = normal.cross(tangent);
+        let (tangent, bitangent) = normal.any_orthonormal_pair();
         let incoming = d.x * tangent + d.y * bitangent + z * normal;
 
         BrdfSample {
