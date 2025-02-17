@@ -63,10 +63,6 @@ pub trait Brdf: Send + Sync {
         _ = lambda;
         incoming.dot(normal).max(0.0) / PI
     }
-
-    fn name(&self) -> &'static str {
-        std::any::type_name::<Self>()
-    }
 }
 
 #[derive(Clone)]

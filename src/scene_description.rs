@@ -1,11 +1,9 @@
-use std::f64::consts::PI;
 use std::sync::Arc;
 use std::time::Instant;
 
-use glam::{DMat3, DMat4, DQuat, DVec3, DVec4, EulerRot};
-use rand::{thread_rng, Rng};
+use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot};
 
-use crate::brdf::{Brdf, DielectricBrdf, LambertianBrdf, SmoothConductorBrdf, ThinDielectricBrdf};
+use crate::brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf, ThinDielectricBrdf};
 use crate::bvh::Bvh;
 use crate::light::DistantDiskLight;
 use crate::material::Material;
@@ -302,7 +300,6 @@ pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
             sea_level: PLANET_RADIUS,
             height_scale: HEIGHT_SCALE * 0.15,
             sea_level_density: 2e-5,
-            g: 0.76,
         },
     };
 

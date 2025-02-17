@@ -2,6 +2,7 @@ use std::f64::consts::PI;
 
 use glam::{DVec3, DVec4, Vec3Swizzles};
 
+use crate::phase::{Draine, Phase};
 use crate::spectrum::Spectrum;
 
 pub trait Medium: Send + Sync {
@@ -28,10 +29,12 @@ pub trait Medium: Send + Sync {
     fn phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4;
 
     fn sample_phase(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4, random: DVec3) -> DVec3 {
+        _ = (pos, outgoing, lambdas);
         crate::random::sphere(random.xy())
     }
 
     fn pdf_phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> f64 {
+        _ = (pos, incoming, outgoing, lambdas);
         1.0 / (4.0 * PI)
     }
 
@@ -214,7 +217,10 @@ pub struct AtmosphereMie {
     pub sea_level: f64,
     pub sea_level_density: f64,
     pub height_scale: f64,
-    pub g: f64,
+}
+
+impl AtmosphereMie {
+    const PHASE: Draine = Draine { alpha: 1.0, g: 0.76 };
 }
 
 impl Medium for AtmosphereMie {
@@ -240,47 +246,17 @@ impl Medium for AtmosphereMie {
     }
 
     fn phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        DVec4::splat(self.pdf_phase(pos, incoming, outgoing, lambdas))
+        _ = pos;
+        Self::PHASE.f(incoming, outgoing, lambdas)
     }
 
     fn sample_phase(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4, random: DVec3) -> DVec3 {
-        _ = (pos, lambdas);
-        // Draine function sampling, see paper:
-        // Supplemental: An Approximate Mie Scattering Function for Fog and Cloud Rendering
-        // by Johannes Jendersie and Eugene d'Eon, of NVIDIA
-        // when alpha = 1.0, Draine's function is Cornette-Shanks
-        let alpha = 1.0;
-        let g = self.g;
-        let g2 = g * g;
-        let g4 = g2 * g2;
-        let t0 = alpha - alpha * g2;
-        let t1 = alpha * g4 - alpha;
-        let t2 = -3.0 * (4.0 * (g4 - g2) + t1 * (1.0 + g2));
-        let t3 = g * (2.0 * random.x - 1.0);
-        let t4 = 3.0 * g2 * (1.0 + t3) + alpha * (2.0 + g2 * (1.0 + (1.0 + 2.0 * g2) * t3));
-        let t5 = t0 * (t1 * t2 + t4 * t4) + t1 * t1 * t1;
-        let t6 = t0 * 4.0 * (g4 - g2);
-        let t7 = (t5 + (t5 * t5 - t6 * t6 * t6).sqrt()).cbrt();
-        let t8 = 2.0 * (t1 + t6 / t7 + t7) / t0;
-        let t9 = (6.0 * (1.0 + g2) + t8).sqrt();
-        let t10 = (6.0 * (1.0 + g2) - t8 + 8.0 * t4 / (t0 * t9)).sqrt() - t9;
-        let cos_theta = g / 2.0 + 1.0 / (2.0 * g) - 1.0 / (8.0 * g) * t10 * t10;
-        // thank goodness for that paper o_O
-
-        let sin_theta = (1.0 - cos_theta * cos_theta).sqrt();
-        let (y, x) = (random.y * 2.0 * PI).sin_cos();
-        let (tangent, bitangent) = outgoing.any_orthonormal_pair();
-
-        cos_theta * outgoing + sin_theta * (y * tangent + x * bitangent)
+        _ = pos;
+        Self::PHASE.sample(outgoing, lambdas, random)
     }
 
     fn pdf_phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> f64 {
-        _ = (pos, lambdas);
-        // Cornette-Shanks phase function
-        let u = outgoing.dot(incoming);
-        let g = self.g;
-        let term = (1.0 + g * g - 2.0 * g * u).sqrt();
-        let denom = 8.0 * PI * (2.0 + g * g) * term * term * term;
-        3.0 * (1.0 - g * g) * (1.0 + u * u) / denom
+        _ = pos;
+        Self::PHASE.pdf(incoming, outgoing, lambdas)
     }
 }

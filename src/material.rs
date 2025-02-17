@@ -1,6 +1,6 @@
-use glam::{DVec3, DVec4};
+use glam::DVec4;
 
-use crate::brdf::{Brdf, BrdfSample};
+use crate::brdf::Brdf;
 use crate::medium::Medium;
 use crate::spectrum::Spectrum;
 
@@ -21,8 +21,6 @@ pub trait MaterialErased: Send + Sync {
 
     fn enter_medium(&self) -> &dyn Medium;
     fn exit_medium(&self) -> &dyn Medium;
-
-    fn name(&self) -> &'static str;
 }
 
 trait Maybe<T: ?Sized>: Send + Sync {
@@ -68,9 +66,5 @@ impl<E: Spectrum, B: Maybe<dyn Brdf>, Mi: Maybe<dyn Medium>, Mo: Maybe<dyn Mediu
         self.exit_medium
             .get()
             .expect("transmitting non-transmissive surface")
-    }
-
-    fn name(&self) -> &'static str {
-        self.brdf.get().map_or("none", Brdf::name)
     }
 }

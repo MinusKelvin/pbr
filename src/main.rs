@@ -22,6 +22,7 @@ mod random;
 mod scene;
 mod scene_description;
 mod spectrum;
+mod phase;
 
 #[derive(clap::Parser)]
 struct Options {
