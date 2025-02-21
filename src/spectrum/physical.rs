@@ -22,3 +22,22 @@ pub fn cie_xyz() -> &'static [impl Spectrum; 3] {
     });
     &CIE_XYZ
 }
+
+pub struct Blackbody {
+    pub temperature: f64,
+}
+
+impl Spectrum for Blackbody {
+    fn sample(&self, lambda: f64) -> f64 {
+        const C: f64 = 299_792_458.0;
+        const H: f64 = 6.62606957e-34;
+        const K_B: f64 = 1.3806488e-23;
+        let l = lambda * 1e-9;
+        let l2 = l * l;
+        let l5 = l2 * l2 * l;
+        let exp = H * C / (l * K_B * self.temperature);
+        let radiance = 2.0 * H * C * C / (l5 * (exp.exp() - 1.0));
+        // Planck's law gives radiance per meter, but we use nanometers
+        radiance * 1e-9
+    }
+}

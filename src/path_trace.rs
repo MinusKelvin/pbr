@@ -1,10 +1,7 @@
-use std::f64::consts::PI;
-
 use glam::{DVec3, DVec4, Vec4Swizzles};
 use rand::prelude::*;
 
 use crate::medium::Medium;
-use crate::random;
 use crate::scene::Scene;
 
 pub fn path_trace(
@@ -54,8 +51,9 @@ pub fn path_trace(
                 }
 
                 let p = pos + t * dir;
-                let pr_absorption = medium.absorption(p, dir, lambdas) / majorant;
-                let pr_scattering = medium.scattering(p, dir, lambdas) / majorant;
+                let mp = medium.properties(pos, dir, lambdas);
+                let pr_absorption = mp.absorption / majorant;
+                let pr_scattering = mp.scattering / majorant;
                 let pr_null = 1.0 - pr_absorption - pr_scattering;
 
                 let rng: f64 = thread_rng().gen();
@@ -65,7 +63,7 @@ pub fn path_trace(
                     }
 
                     throughput *= pr_absorption / pr_absorption.x;
-                    radiance += throughput * medium.emission(p, dir, lambdas);
+                    radiance += throughput * mp.emission;
 
                     break 'mainloop;
                 } else if rng < pr_absorption.x + pr_scattering.x {
@@ -234,7 +232,8 @@ fn transmittance<'a>(
                 }
 
                 let p = pos + t * dir;
-                let pr_attenuation = medium.attenuation(p, dir, lambdas) / majorant;
+                let mp = medium.properties(p, dir, lambdas);
+                let pr_attenuation = (mp.absorption + mp.scattering) / majorant;
                 let pr_null = 1.0 - pr_attenuation;
                 transmittance *= pr_null;
             }

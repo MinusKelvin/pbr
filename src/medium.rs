@@ -5,26 +5,16 @@ use glam::{DVec3, DVec4, Vec3Swizzles};
 use crate::phase::{Draine, Phase};
 use crate::spectrum::Spectrum;
 
+pub struct MediumProperties {
+    pub emission: DVec4,
+    pub absorption: DVec4,
+    pub scattering: DVec4,
+}
+
 pub trait Medium: Send + Sync {
     fn majorant(&self, lambdas: DVec4) -> f64;
 
-    fn absorption(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4;
-
-    fn emission(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4;
-
-    fn scattering(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4;
-
-    fn attenuation(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        self.absorption(pos, outgoing, lambdas) + self.scattering(pos, outgoing, lambdas)
-    }
-
-    fn single_scattering_albedo(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        self.scattering(pos, outgoing, lambdas) / self.attenuation(pos, outgoing, lambdas)
-    }
-
-    fn null_scattering(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        self.majorant(lambdas) - self.attenuation(pos, outgoing, lambdas)
-    }
+    fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties;
 
     fn phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4;
 
@@ -52,19 +42,13 @@ impl Medium for Vacuum {
         0.0
     }
 
-    fn absorption(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
+    fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
         _ = (pos, outgoing, lambdas);
-        DVec4::ZERO
-    }
-
-    fn emission(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = (pos, outgoing, lambdas);
-        DVec4::ZERO
-    }
-
-    fn scattering(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = (pos, outgoing, lambdas);
-        DVec4::ZERO
+        MediumProperties {
+            emission: DVec4::ZERO,
+            absorption: DVec4::ZERO,
+            scattering: DVec4::ZERO,
+        }
     }
 
     fn phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
@@ -88,21 +72,19 @@ impl<M1: Medium, M2: Medium> Medium for CombinedMedium<M1, M2> {
         self.m1.majorant(lambdas) + self.m2.majorant(lambdas)
     }
 
-    fn absorption(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        self.m1.absorption(pos, outgoing, lambdas) + self.m2.absorption(pos, outgoing, lambdas)
-    }
-
-    fn emission(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        self.m1.emission(pos, outgoing, lambdas) + self.m2.emission(pos, outgoing, lambdas)
-    }
-
-    fn scattering(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        self.m1.scattering(pos, outgoing, lambdas) + self.m2.scattering(pos, outgoing, lambdas)
+    fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
+        let mp1 = self.m1.properties(pos, outgoing, lambdas);
+        let mp2 = self.m2.properties(pos, outgoing, lambdas);
+        MediumProperties {
+            emission: mp1.emission + mp2.emission,
+            absorption: mp1.absorption + mp2.absorption,
+            scattering: mp1.scattering + mp2.scattering,
+        }
     }
 
     fn phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        let s1 = self.m1.scattering(pos, outgoing, lambdas);
-        let s2 = self.m2.scattering(pos, outgoing, lambdas);
+        let s1 = self.m1.properties(pos, outgoing, lambdas).scattering;
+        let s2 = self.m2.properties(pos, outgoing, lambdas).scattering;
         let t = s1 / (s1 + s2);
         let p1 = self.m1.phase(pos, outgoing, incoming, lambdas);
         let p2 = self.m2.phase(pos, outgoing, incoming, lambdas);
@@ -110,8 +92,8 @@ impl<M1: Medium, M2: Medium> Medium for CombinedMedium<M1, M2> {
     }
 
     fn sample_phase(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4, random: DVec3) -> DVec3 {
-        let s1 = self.m1.scattering(pos, outgoing, lambdas).x;
-        let s2 = self.m2.scattering(pos, outgoing, lambdas).x;
+        let s1 = self.m1.properties(pos, outgoing, lambdas).scattering.x;
+        let s2 = self.m2.properties(pos, outgoing, lambdas).scattering.x;
         let t = s1 / (s1 + s2);
         if random.z < t {
             let random = random.with_z(random.z / t);
@@ -123,8 +105,8 @@ impl<M1: Medium, M2: Medium> Medium for CombinedMedium<M1, M2> {
     }
 
     fn pdf_phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> f64 {
-        let s1 = self.m1.scattering(pos, outgoing, lambdas).x;
-        let s2 = self.m2.scattering(pos, outgoing, lambdas).x;
+        let s1 = self.m1.properties(pos, outgoing, lambdas).scattering.x;
+        let s2 = self.m2.properties(pos, outgoing, lambdas).scattering.x;
         let t = s1 / (s1 + s2);
         let pdf1 = self.m1.pdf_phase(pos, incoming, outgoing, lambdas);
         let pdf2 = self.m2.pdf_phase(pos, incoming, outgoing, lambdas);
@@ -145,19 +127,13 @@ impl<Sa: Spectrum, Se: Spectrum, Ss: Spectrum> Medium for TestMedium<Sa, Se, Ss>
             .max_element()
     }
 
-    fn absorption(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = (pos, outgoing);
-        self.absorption.sample_multi(lambdas) * (1.0 - pos.length())
-    }
-
-    fn emission(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = (pos, outgoing);
-        self.emission.sample_multi(lambdas)
-    }
-
-    fn scattering(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = (pos, outgoing);
-        self.scattering.sample_multi(lambdas) * (1.0 - pos.length())
+    fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
+        _ = outgoing;
+        MediumProperties {
+            emission: self.emission.sample_multi(lambdas),
+            absorption: self.absorption.sample_multi(lambdas) * (1.0 - pos.length()),
+            scattering: self.scattering.sample_multi(lambdas) * (1.0 - pos.length()),
+        }
     }
 
     fn phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
@@ -188,20 +164,14 @@ impl Medium for AtmosphereRayleigh {
         self.density_coefficient(lambdas).max_element()
     }
 
-    fn absorption(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = (pos, outgoing, lambdas);
-        DVec4::ZERO
-    }
-
-    fn emission(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = (pos, outgoing, lambdas);
-        DVec4::ZERO
-    }
-
-    fn scattering(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
+    fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
         _ = outgoing;
         let altitude = (pos - self.origin).length() - self.sea_level;
-        self.density_coefficient(lambdas) * (-altitude / self.height_scale).exp()
+        MediumProperties {
+            emission: DVec4::ZERO,
+            absorption: DVec4::ZERO,
+            scattering: self.density_coefficient(lambdas) * (-altitude / self.height_scale).exp(),
+        }
     }
 
     fn phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
@@ -220,7 +190,10 @@ pub struct AtmosphereMie {
 }
 
 impl AtmosphereMie {
-    const PHASE: Draine = Draine { alpha: 1.0, g: 0.76 };
+    const PHASE: Draine = Draine {
+        alpha: 1.0,
+        g: 0.76,
+    };
 }
 
 impl Medium for AtmosphereMie {
@@ -229,20 +202,16 @@ impl Medium for AtmosphereMie {
         self.sea_level_density
     }
 
-    fn absorption(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = (pos, outgoing, lambdas);
-        self.scattering(pos, outgoing, lambdas) * 0.1
-    }
-
-    fn emission(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = (pos, outgoing, lambdas);
-        DVec4::ZERO
-    }
-
-    fn scattering(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
+    fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
         _ = (outgoing, lambdas);
         let altitude = (pos - self.origin).length() - self.sea_level;
-        DVec4::splat(self.sea_level_density * (-altitude / self.height_scale).exp())
+        let scattering =
+            DVec4::splat(self.sea_level_density * (-altitude / self.height_scale).exp());
+        MediumProperties {
+            emission: DVec4::ZERO,
+            absorption: 0.1 * scattering,
+            scattering,
+        }
     }
 
     fn phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {

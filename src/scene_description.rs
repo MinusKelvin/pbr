@@ -12,6 +12,7 @@ use crate::medium::{
 };
 use crate::objects::{SetMaterial, Sphere, Transform, Triangle};
 use crate::scene::Scene;
+use crate::spectrum::physical::Blackbody;
 use crate::spectrum::{AmplifiedSpectrum, ConstantSpectrum, PiecewiseLinearSpectrum};
 use crate::{material, plymesh, spectrum};
 
@@ -213,6 +214,7 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
     (scene, camera, looking, atmosphere)
 }
 
+#[allow(unused)]
 pub fn simple_volume_scene() -> (Scene, DVec3, DMat3, impl Medium) {
     let mut scene = Scene::new();
 
@@ -328,9 +330,8 @@ pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
     });
 
     scene.add_light(DistantDiskLight {
-        emission: AmplifiedSpectrum {
-            factor: 50000.0,
-            s: spectrum::physical::cie_d65(),
+        emission: Blackbody {
+            temperature: 5777.0,
         },
         dir: DVec3::new(0.0, sun_angle.sin(), -sun_angle.cos()).normalize(),
         cos_radius: 0.268f64.to_radians().cos(),

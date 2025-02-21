@@ -1,9 +1,10 @@
+use std::f64::consts::PI;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use clap::Parser;
-use glam::{DMat3, DVec3, DVec4};
-use image::RgbImage;
+use glam::{DMat3, DVec2, DVec3, DVec4};
+use image::{Rgb, RgbImage};
 use medium::Medium;
 use ordered_float::OrderedFloat;
 use rand::{thread_rng, Rng};
@@ -17,16 +18,16 @@ mod material;
 mod medium;
 mod objects;
 mod path_trace;
+mod phase;
 mod plymesh;
 mod random;
 mod scene;
 mod scene_description;
 mod spectrum;
-mod phase;
 
 #[derive(clap::Parser)]
 struct Options {
-    #[arg(short = 'W', default_value_t = 853)]
+    #[arg(short = 'W', default_value_t = 960)]
     width: usize,
     #[arg(short = 'H', default_value_t = 480)]
     height: usize,
@@ -61,7 +62,7 @@ fn main() {
         );
         last = to_render;
 
-        film.save(format!("partial/{to_render}.png"));
+        film.save_raw(format!("partial/{to_render}.exr"));
 
         let d = t.elapsed();
         println!(
@@ -75,8 +76,8 @@ fn main() {
         );
     }
 
-    film.save("img.png");
-    film.save_conf("conf.png");
+    film.save_raw("raw.exr");
+    film.save_tonemapped("img.png");
 
     let d = t.elapsed();
     let efficiency = 1.0 / (film.average_sterr_sq() * d.as_secs_f64());
@@ -111,30 +112,53 @@ impl Film {
         }
     }
 
-    fn save(&self, path: impl AsRef<Path>) {
-        let image = RgbImage::from_fn(self.width as u32, self.height as u32, |x, y| {
-            self.data[x as usize + y as usize * self.width]
-                .srgb()
-                .clamp(DVec3::ZERO, DVec3::ONE)
-                .to_array()
-                .map(|v| (v * 255.0).round() as u8)
-                .into()
-        });
-        image.save(path).unwrap();
+    fn save_raw(&self, path: impl AsRef<Path>) {
+        use exr::prelude::*;
+
+        let attributes = ImageAttributes {
+            display_window: IntegerBounds {
+                position: Vec2(0, 0),
+                size: Vec2(self.width, self.height),
+            },
+            pixel_aspect: 1.0,
+            chromaticities: Some(attribute::Chromaticities {
+                red: Vec2(1.0, 0.0),
+                green: Vec2(0.0, 1.0),
+                blue: Vec2(0.0, 0.0),
+                white: Vec2(1.0 / 3.0, 1.0 / 3.0),
+            }),
+            time_code: None,
+            other: Default::default(),
+        };
+
+        Image::empty(attributes)
+            .with_layer(Layer::new(
+                (self.width, self.height),
+                LayerAttributes::default(),
+                Encoding::FAST_LOSSLESS,
+                SpecificChannels::rgb(|Vec2(x, y): Vec2<usize>| {
+                    self.data[x + y * self.width].mean.as_vec3().into()
+                }),
+            ))
+            .write()
+            .to_file(path)
+            .unwrap();
     }
 
-    fn save_conf(&self, path: impl AsRef<Path>) {
-        let image = RgbImage::from_fn(self.width as u32, self.height as u32, |x, y| {
-            spectrum::xyz_to_srgb(
-                self.data[x as usize + y as usize * self.width]
-                    .sterr_sq()
-                    .map(f64::sqrt),
-            )
-            .to_array()
-            .map(|v| (v * 255.0).round() as u8)
-            .into()
+    fn save_tonemapped(&self, path: impl AsRef<Path>) {
+        let l_avg = self.l_avg();
+        let key_value = 1.03 - 2.0 / ((l_avg + 1.0).log10() + 2.0);
+        dbg!(l_avg, key_value);
+
+        let img = RgbImage::from_fn(self.width as u32, self.height as u32, |x, y| {
+            let y_r = self.data[x as usize + y as usize * self.width].mean * key_value / l_avg;
+            let mapped = y_r / (y_r.y + 1.0);
+            Rgb((spectrum::xyz_to_srgb(mapped) * 255.0)
+                .round()
+                .as_u8vec3()
+                .to_array())
         });
-        image.save(path).unwrap();
+        img.save(path).unwrap();
     }
 
     fn par_iter_mut(&mut self) -> impl IndexedParallelIterator<Item = (usize, usize, &mut Pixel)> {
@@ -154,16 +178,30 @@ impl Film {
         })
     }
 
+    fn l_avg(&self) -> f64 {
+        (self
+            .data
+            .iter()
+            .map(|p| p.mean.y.max(0.001).ln())
+            .sum::<f64>()
+            / (self.data.len() as f64))
+            .exp()
+    }
+
     fn average_sterr_sq(&self) -> f64 {
+        let l_avg = self.l_avg();
         self.data
             .iter()
             .map(|p| p.sterr_sq().element_sum())
             .sum::<f64>()
             / self.data.len() as f64
             / 3.0
+            / l_avg
+            / l_avg
     }
 
     fn max_sterr_sq(&self) -> f64 {
+        let l_avg = self.l_avg();
         self.data
             .iter()
             .map(|p| OrderedFloat(p.sterr_sq().element_sum()))
@@ -171,6 +209,8 @@ impl Film {
             .unwrap()
             .0
             / 3.0
+            / l_avg
+            / l_avg
     }
 
     fn num_paths(&self) -> f64 {
@@ -187,8 +227,9 @@ impl Pixel {
         self.m2 += delta * delta2;
     }
 
-    fn srgb(&self) -> DVec3 {
-        spectrum::xyz_to_srgb(self.mean)
+    fn srgb(&self, exposure: f64) -> DVec3 {
+        let y_r = self.mean * exposure;
+        spectrum::xyz_to_srgb(y_r / (1.0 + y_r.y))
     }
 
     fn sterr_sq(&self) -> DVec3 {
@@ -209,10 +250,14 @@ fn render(
     let fov = 2.0;
     film.par_iter_mut().for_each(|(x, y, pixel)| {
         for _ in 0..samples {
-            let x = x as f64 + thread_rng().gen::<f64>() - width as f64 / 2.0;
-            let y = y as f64 + thread_rng().gen::<f64>() - height as f64 / 2.0;
-            let d = DVec3::new(x / height as f64 * fov, -y / height as f64 * fov, -1.0);
-            let d = looking * d.normalize();
+            // let x = x as f64 + thread_rng().gen::<f64>() - width as f64 / 2.0;
+            // let y = y as f64 + thread_rng().gen::<f64>() - height as f64 / 2.0;
+            // let d = DVec3::new(x / height as f64 * fov, -y / height as f64 * fov, -1.0);
+            // let d = looking * d.normalize();
+
+            let p = (DVec2::new(x as f64, y as f64) + thread_rng().gen::<DVec2>())
+                / DVec2::new(width as f64, height as f64);
+            let d = equal_area_square_to_sphere(p);
 
             let lambda = thread_rng().gen_range(spectrum::VISIBLE);
             let r = spectrum::VISIBLE.end - spectrum::VISIBLE.start;
@@ -227,7 +272,7 @@ fn render(
             let radiance = path_trace::path_trace(scene, camera, d, lambdas, camera_medium);
             let mut value = DVec3::ZERO;
             for i in 0..4 {
-                value += (radiance[i] / pdf / 4.0) * spectrum::lambda_to_xyz(lambdas[i]);
+                value += 683.002 * (radiance[i] / pdf / 4.0) * spectrum::lambda_to_xyz(lambdas[i]);
             }
 
             pixel.accumulate_sample(value);
@@ -318,4 +363,27 @@ impl std::fmt::Display for Time {
             }
         }
     }
+}
+
+fn equal_area_square_to_sphere(p: DVec2) -> DVec3 {
+    let uv = 2.0 * p - 1.0;
+    let uvp = uv.abs();
+
+    let signed_distance = 1.0 - (uvp.x + uvp.y);
+    let d = signed_distance.abs();
+    let r = 1.0 - d;
+
+    let phi = PI / 4.0
+        * match r == 0.0 {
+            true => 1.0,
+            false => (uvp.y - uvp.x) / r + 1.0,
+        };
+
+    let z = (1.0 - r * r).copysign(signed_distance);
+
+    let cos_phi = phi.cos().copysign(uv.x);
+    let sin_phi = phi.sin().copysign(uv.y);
+
+    let factor = r * (2.0 - r * r).sqrt();
+    DVec3::new(cos_phi * factor, z, sin_phi * factor)
 }
