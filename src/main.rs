@@ -1,10 +1,9 @@
 use std::f64::consts::PI;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use clap::Parser;
 use glam::{DMat3, DVec2, DVec3, DVec4};
-use image::{Rgb, RgbImage};
 use medium::Medium;
 use ordered_float::OrderedFloat;
 use rand::{thread_rng, Rng};
@@ -77,7 +76,6 @@ fn main() {
     }
 
     film.save_raw("raw.exr");
-    film.save_tonemapped("img.png");
 
     let d = t.elapsed();
     let efficiency = 1.0 / (film.average_sterr_sq() * d.as_secs_f64());
@@ -143,22 +141,6 @@ impl Film {
             .write()
             .to_file(path)
             .unwrap();
-    }
-
-    fn save_tonemapped(&self, path: impl AsRef<Path>) {
-        let l_avg = self.l_avg();
-        let key_value = 1.03 - 2.0 / ((l_avg + 1.0).log10() + 2.0);
-        dbg!(l_avg, key_value);
-
-        let img = RgbImage::from_fn(self.width as u32, self.height as u32, |x, y| {
-            let y_r = self.data[x as usize + y as usize * self.width].mean * key_value / l_avg;
-            let mapped = y_r / (y_r.y + 1.0);
-            Rgb((spectrum::xyz_to_srgb(mapped) * 255.0)
-                .round()
-                .as_u8vec3()
-                .to_array())
-        });
-        img.save(path).unwrap();
     }
 
     fn par_iter_mut(&mut self) -> impl IndexedParallelIterator<Item = (usize, usize, &mut Pixel)> {
@@ -227,11 +209,6 @@ impl Pixel {
         self.m2 += delta * delta2;
     }
 
-    fn srgb(&self, exposure: f64) -> DVec3 {
-        let y_r = self.mean * exposure;
-        spectrum::xyz_to_srgb(y_r / (1.0 + y_r.y))
-    }
-
     fn sterr_sq(&self) -> DVec3 {
         self.m2 / (self.count - 1.0) / self.count
     }
@@ -250,14 +227,17 @@ fn render(
     let fov = 2.0;
     film.par_iter_mut().for_each(|(x, y, pixel)| {
         for _ in 0..samples {
-            // let x = x as f64 + thread_rng().gen::<f64>() - width as f64 / 2.0;
-            // let y = y as f64 + thread_rng().gen::<f64>() - height as f64 / 2.0;
-            // let d = DVec3::new(x / height as f64 * fov, -y / height as f64 * fov, -1.0);
-            // let d = looking * d.normalize();
-
-            let p = (DVec2::new(x as f64, y as f64) + thread_rng().gen::<DVec2>())
-                / DVec2::new(width as f64, height as f64);
-            let d = equal_area_square_to_sphere(p);
+            let d;
+            if width == height {
+                let p = (DVec2::new(x as f64, y as f64) + thread_rng().gen::<DVec2>())
+                    / DVec2::new(width as f64, height as f64);
+                d = equal_area_square_to_sphere(p);
+            } else {
+                let x = x as f64 + thread_rng().gen::<f64>() - width as f64 / 2.0;
+                let y = y as f64 + thread_rng().gen::<f64>() - height as f64 / 2.0;
+                let v = DVec3::new(x / height as f64 * fov, -y / height as f64 * fov, -1.0);
+                d = looking * v.normalize();
+            }
 
             let lambda = thread_rng().gen_range(spectrum::VISIBLE);
             let r = spectrum::VISIBLE.end - spectrum::VISIBLE.start;

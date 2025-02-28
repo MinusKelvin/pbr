@@ -3,7 +3,7 @@ use rand::{thread_rng, Rng};
 
 use crate::spectrum::{lambda_to_xyz, spectrum_to_xyz, srgb_to_xyz, xyz_to_srgb, VISIBLE};
 
-use super::physical::cie_d65;
+use super::physical::cie_d65_1nit;
 use super::{ConstantSpectrum, Spectrum};
 
 #[derive(Debug)]
@@ -31,7 +31,7 @@ impl<S> RgbIlluminant<S> {
     }
 
     pub fn new_d65(srgb: DVec3, brightness: f64) -> RgbIlluminant<impl Spectrum> {
-        RgbIlluminant::new(srgb, brightness, cie_d65())
+        RgbIlluminant::new(srgb, brightness, cie_d65_1nit())
     }
 }
 

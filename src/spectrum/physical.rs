@@ -4,7 +4,7 @@ use crate::spectrum::PiecewiseLinearSpectrum;
 
 use super::Spectrum;
 
-pub fn cie_d65() -> &'static impl Spectrum {
+pub fn cie_d65_1nit() -> &'static impl Spectrum {
     static CIE_D65: LazyLock<PiecewiseLinearSpectrum> = LazyLock::new(|| {
         let mut d65 = PiecewiseLinearSpectrum::from_csv(include_str!("CIE_std_illum_D65.csv"));
         let d65_y = super::integrate_product(&d65, &cie_xyz()[1]);
@@ -21,6 +21,13 @@ pub fn cie_xyz() -> &'static [impl Spectrum; 3] {
         PiecewiseLinearSpectrum::from_csv_multi(include_str!("CIE_xyz_1931_2deg.csv"))
     });
     &CIE_XYZ
+}
+
+pub fn extraterrestrial_solar_irradiance() -> &'static impl Spectrum {
+    static SPECTRUM: LazyLock<PiecewiseLinearSpectrum> = LazyLock::new(|| {
+        PiecewiseLinearSpectrum::from_csv(include_str!("gueymard_1995_extraterrestrial_solar.csv"))
+    });
+    &*SPECTRUM
 }
 
 pub struct Blackbody {

@@ -12,7 +12,7 @@ use crate::medium::{
 };
 use crate::objects::{SetMaterial, Sphere, Transform, Triangle};
 use crate::scene::Scene;
-use crate::spectrum::physical::Blackbody;
+use crate::spectrum::physical::{extraterrestrial_solar_irradiance, Blackbody};
 use crate::spectrum::{AmplifiedSpectrum, ConstantSpectrum, PiecewiseLinearSpectrum};
 use crate::{material, plymesh, spectrum};
 
@@ -23,7 +23,7 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         emission: spectrum::ZERO,
         scattering: PiecewiseLinearSpectrum::from_points(&[(360.0, 0.0), (830.0, 1.0)]),
     };
-    // let atmosphere = Vacuum;
+    let atmosphere = Vacuum;
 
     let t = Instant::now();
     let (dragon, dragon_bounds) = plymesh::load_plymesh(
@@ -199,7 +199,7 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         emission: AmplifiedSpectrum {
             factor: 25.0,
             // factor: 50000.0,
-            s: spectrum::physical::cie_d65(),
+            s: spectrum::physical::cie_d65_1nit(),
         },
         dir: DVec3::new(-1.0, 0.5, -0.3).normalize(),
         cos_radius: 10.0f64.to_radians().cos(),
@@ -271,7 +271,7 @@ pub fn simple_volume_scene() -> (Scene, DVec3, DMat3, impl Medium) {
             // factor: 1.0,
             factor: 25.0,
             // factor: 50000.0,
-            s: spectrum::physical::cie_d65(),
+            s: spectrum::physical::cie_d65_1nit(),
         },
         dir: DVec3::new(-1.0, 0.5, -0.3).normalize(),
         // cos_radius: -1.0,
@@ -329,13 +329,11 @@ pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
         },
     });
 
-    scene.add_light(DistantDiskLight {
-        emission: Blackbody {
-            temperature: 5777.0,
-        },
-        dir: DVec3::new(0.0, sun_angle.sin(), -sun_angle.cos()).normalize(),
-        cos_radius: 0.268f64.to_radians().cos(),
-    });
+    scene.add_light(DistantDiskLight::from_irradiance(
+        DVec3::new(0.0, sun_angle.sin(), -sun_angle.cos()).normalize(),
+        0.268f64.to_radians().cos(),
+        extraterrestrial_solar_irradiance(),
+    ));
 
     let looking = DMat3::from_euler(EulerRot::YXZ, -0.3, 0.3, 0.0);
     let camera = DVec3::new(0.0, 10.0, 0.0);

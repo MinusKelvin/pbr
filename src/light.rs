@@ -2,7 +2,7 @@ use std::f64::consts::PI;
 
 use glam::{DVec3, DVec4, FloatExt};
 
-use crate::spectrum::Spectrum;
+use crate::spectrum::{AmplifiedSpectrum, Spectrum};
 
 pub struct LightSample {
     pub dir: DVec3,
@@ -23,6 +23,25 @@ pub struct DistantDiskLight<S> {
     pub emission: S,
     pub dir: DVec3,
     pub cos_radius: f64,
+}
+
+impl<S> DistantDiskLight<S> {
+    pub fn from_irradiance(
+        dir: DVec3,
+        cos_radius: f64,
+        irradiance: S,
+    ) -> DistantDiskLight<AmplifiedSpectrum<S>> {
+        let size_steradians = 2.0 * PI * (1.0 - cos_radius);
+        let emission = AmplifiedSpectrum {
+            factor: 1.0 / size_steradians,
+            s: irradiance,
+        };
+        DistantDiskLight {
+            emission,
+            dir,
+            cos_radius,
+        }
+    }
 }
 
 impl<S: Spectrum + Send + Sync> Light for DistantDiskLight<S> {
