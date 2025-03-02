@@ -3,8 +3,9 @@ use std::f64::consts::PI;
 use glam::{DVec3, DVec4, Vec3Swizzles};
 
 use crate::phase::{Draine, Phase};
-use crate::spectrum::Spectrum;
+use crate::spectrum::{self, Spectrum};
 
+#[derive(Debug)]
 pub struct MediumProperties {
     pub emission: DVec4,
     pub absorption: DVec4,
@@ -143,13 +144,18 @@ impl<Sa: Spectrum, Se: Spectrum, Ss: Spectrum> Medium for TestMedium<Sa, Se, Ss>
 }
 
 #[derive(Clone)]
-pub struct AtmosphereRayleigh {
+pub struct AtmosphereDryAir {
     pub origin: DVec3,
     pub sea_level: f64,
     pub height_scale: f64,
+
+    pub ozone_start_altitude: f64,
+    pub ozone_peak_altitude: f64,
+    pub ozone_peak_concentration: f64,
+    pub ozone_height_scale: f64,
 }
 
-impl AtmosphereRayleigh {
+impl AtmosphereDryAir {
     fn density_coefficient(&self, lambdas: DVec4) -> DVec4 {
         const NSQ_M1: f64 = 1.00029 * 1.00029 - 1.0;
         const COEFFICIENT: f64 = 8.0 * PI * PI * PI * NSQ_M1 * NSQ_M1 / (3.0 * 2.504e25);
@@ -157,9 +163,21 @@ impl AtmosphereRayleigh {
         let lm = lambdas * 1e-9;
         COEFFICIENT / (lm * lm * lm * lm)
     }
+
+    fn ozone_concentration(&self, h: f64) -> f64 {
+        if h < self.ozone_start_altitude {
+            0.0
+        } else if h < self.ozone_peak_altitude {
+            (h - self.ozone_start_altitude) / (self.ozone_peak_altitude - self.ozone_start_altitude)
+                * self.ozone_peak_concentration
+        } else {
+            (-(h - self.ozone_peak_altitude) / self.ozone_height_scale).exp()
+                * self.ozone_peak_concentration
+        }
+    }
 }
 
-impl Medium for AtmosphereRayleigh {
+impl Medium for AtmosphereDryAir {
     fn majorant(&self, lambdas: DVec4) -> f64 {
         self.density_coefficient(lambdas).max_element()
     }
@@ -167,10 +185,14 @@ impl Medium for AtmosphereRayleigh {
     fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
         _ = outgoing;
         let altitude = (pos - self.origin).length() - self.sea_level;
+        let density = (-altitude / self.height_scale).exp();
+        let ozone_absorption = density
+            * self.ozone_concentration(altitude)
+            * spectrum::physical::ozone_absorption_coeff_sea_level().sample_multi(lambdas);
         MediumProperties {
             emission: DVec4::ZERO,
-            absorption: DVec4::ZERO,
-            scattering: self.density_coefficient(lambdas) * (-altitude / self.height_scale).exp(),
+            absorption: ozone_absorption,
+            scattering: self.density_coefficient(lambdas) * density,
         }
     }
 
@@ -182,21 +204,22 @@ impl Medium for AtmosphereRayleigh {
 }
 
 #[derive(Clone)]
-pub struct AtmosphereMie {
+pub struct AtmosphereAerosols {
     pub origin: DVec3,
     pub sea_level: f64,
     pub sea_level_density: f64,
     pub height_scale: f64,
+    pub max_height: f64,
 }
 
-impl AtmosphereMie {
+impl AtmosphereAerosols {
     const PHASE: Draine = Draine {
         alpha: 1.0,
         g: 0.76,
     };
 }
 
-impl Medium for AtmosphereMie {
+impl Medium for AtmosphereAerosols {
     fn majorant(&self, lambdas: DVec4) -> f64 {
         _ = lambdas;
         self.sea_level_density
@@ -205,12 +228,12 @@ impl Medium for AtmosphereMie {
     fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
         _ = (outgoing, lambdas);
         let altitude = (pos - self.origin).length() - self.sea_level;
-        let scattering =
-            DVec4::splat(self.sea_level_density * (-altitude / self.height_scale).exp());
+        let scattering = self.sea_level_density * (-altitude / self.height_scale).exp();
+        let scattering = scattering * (self.max_height - altitude).max(0.0) / self.max_height;
         MediumProperties {
             emission: DVec4::ZERO,
-            absorption: 0.1 * scattering,
-            scattering,
+            absorption: DVec4::splat(0.1 * scattering),
+            scattering: DVec4::splat(scattering),
         }
     }
 

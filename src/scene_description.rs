@@ -8,7 +8,7 @@ use crate::bvh::Bvh;
 use crate::light::DistantDiskLight;
 use crate::material::Material;
 use crate::medium::{
-    AtmosphereMie, AtmosphereRayleigh, CombinedMedium, Medium, TestMedium, Vacuum,
+    AtmosphereAerosols, AtmosphereDryAir, CombinedMedium, Medium, TestMedium, Vacuum,
 };
 use crate::objects::{SetMaterial, Sphere, Transform, Triangle};
 use crate::scene::Scene;
@@ -289,19 +289,24 @@ pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
     let mut scene = Scene::new();
 
     const PLANET_RADIUS: f64 = 6371000.0;
-    const HEIGHT_SCALE: f64 = 8000.0;
+    const ATMOSPHERE_HEIGHT: f64 = 50_000.0;
 
     let atmosphere = CombinedMedium {
-        m1: AtmosphereRayleigh {
+        m1: AtmosphereDryAir {
             origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),
             sea_level: PLANET_RADIUS,
-            height_scale: HEIGHT_SCALE,
+            height_scale: 8000.0,
+            ozone_start_altitude: 12_000.0,
+            ozone_peak_altitude: 32_000.0,
+            ozone_peak_concentration: 12e-6,
+            ozone_height_scale: 12_000.0,
         },
-        m2: AtmosphereMie {
+        m2: AtmosphereAerosols {
             origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),
             sea_level: PLANET_RADIUS,
-            height_scale: HEIGHT_SCALE * 0.15,
-            sea_level_density: 2e-5,
+            height_scale: 1_200.0,
+            sea_level_density: 1e-5,
+            max_height: 20_000.0,
         },
     };
 
@@ -320,7 +325,7 @@ pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
 
     scene.add(Sphere {
         origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),
-        radius: PLANET_RADIUS + 7.5 * HEIGHT_SCALE,
+        radius: PLANET_RADIUS + ATMOSPHERE_HEIGHT,
         material: Material {
             emission: spectrum::ZERO,
             brdf: (),

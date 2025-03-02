@@ -30,6 +30,15 @@ pub fn extraterrestrial_solar_irradiance() -> &'static impl Spectrum {
     &*SPECTRUM
 }
 
+pub fn ozone_absorption_coeff_sea_level() -> &'static impl Spectrum {
+    static SPECTRUM: LazyLock<PiecewiseLinearSpectrum> = LazyLock::new(|| {
+        PiecewiseLinearSpectrum::from_csv(include_str!(
+            "pure-ozone-absorption-coeff-sea-level-serdyuchenko.csv"
+        ))
+    });
+    &*SPECTRUM
+}
+
 pub struct Blackbody {
     pub temperature: f64,
 }

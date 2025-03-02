@@ -14,8 +14,15 @@ pub struct Options {
 
 impl Options {
     pub fn new(img: &Image<Vec3>) -> Self {
-        let total_log_lum = img.data.iter().map(|v| v.y.max(1e-4).ln()).sum::<f32>();
-        let avg_luminance = (total_log_lum / img.data.len() as f32).exp();
+        let mut total_log_lum = 1e-4f32.ln();
+        let mut count = 1.0;
+        for xyz in &img.data {
+            if xyz.y > 1e-4 {
+                total_log_lum += xyz.y.ln();
+                count += 1.0;
+            }
+        }
+        let avg_luminance = (total_log_lum / count).exp();
 
         let key_value = 1.03 - 2.0 / (2.0 + (avg_luminance + 1.0).log10());
 
