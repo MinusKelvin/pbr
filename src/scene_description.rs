@@ -3,7 +3,9 @@ use std::time::Instant;
 
 use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot};
 
-use crate::brdf::{DielectricBrdf, LambertianBrdf, SmoothConductorBrdf, ThinDielectricBrdf};
+use crate::brdf::{
+    DielectricBrdf, LambertianBrdf, RoughConductorBrdf, SmoothConductorBrdf, ThinDielectricBrdf,
+};
 use crate::bvh::Bvh;
 use crate::light::DistantDiskLight;
 use crate::material::Material;
@@ -12,7 +14,7 @@ use crate::medium::{
 };
 use crate::objects::{SetMaterial, Sphere, Transform, Triangle};
 use crate::scene::Scene;
-use crate::spectrum::physical::{extraterrestrial_solar_irradiance, Blackbody};
+use crate::spectrum::physical::extraterrestrial_solar_irradiance;
 use crate::spectrum::{AmplifiedSpectrum, ConstantSpectrum, PiecewiseLinearSpectrum};
 use crate::{material, plymesh, spectrum};
 
@@ -46,7 +48,8 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         std::fs::File::open("models/bun_zipper.ply").unwrap(),
         &Material {
             emission: spectrum::ZERO,
-            brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
+            // brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
+            brdf: RoughConductorBrdf::new(material::physical::ior_gold(), 0.05),
             enter_medium: Vacuum,
             exit_medium: Vacuum,
         },
@@ -68,9 +71,7 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         c_n: DVec3::Y,
         material: Material {
             emission: spectrum::ZERO,
-            brdf: LambertianBrdf {
-                albedo: ConstantSpectrum(0.5),
-            },
+            brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
             enter_medium: Vacuum,
             exit_medium: Vacuum,
         },
@@ -84,9 +85,7 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         c_n: DVec3::Y,
         material: Material {
             emission: spectrum::ZERO,
-            brdf: LambertianBrdf {
-                albedo: ConstantSpectrum(0.5),
-            },
+            brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
             enter_medium: Vacuum,
             exit_medium: Vacuum,
         },
@@ -103,7 +102,8 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
             // brdf: Arc::new(LambertianBrdf {
             //     albedo: DVec3::new(0.25, 1.0, 0.25),
             // }),
-            brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
+            // brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
+            brdf: RoughConductorBrdf::new(material::physical::ior_gold(), 0.05),
             // brdf: DielectricBrdf {
             //     ior: ConstantSpectrum(1.5),
             // },
@@ -125,7 +125,8 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
             // brdf: Arc::new(LambertianBrdf {
             //     albedo: DVec3::new(0.25, 0.25, 1.0),
             // }),
-            brdf: SmoothConductorBrdf::new(material::physical::ior_copper()),
+            // brdf: SmoothConductorBrdf::new(material::physical::ior_copper()),
+            brdf: RoughConductorBrdf::new(material::physical::ior_copper(), 0.05),
             enter_medium: Vacuum,
             exit_medium: Vacuum,
         },
@@ -139,7 +140,7 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
             dragon.clone(),
         ),
     });
-    scene.add(Transform::new(DMat4::from_translation(-cb_dragon), dragon));
+    // scene.add(Transform::new(DMat4::from_translation(-cb_dragon), dragon));
     scene.add(Transform::new(
         DMat4::from_scale_rotation_translation(
             DVec3::splat(2.0),
@@ -157,33 +158,34 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.3,
         material: Material {
             emission: spectrum::ZERO,
-            brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
+            // brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
+            brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
             enter_medium: Vacuum,
             exit_medium: Vacuum,
         },
     });
-    scene.add(Sphere {
-        origin: DVec3::new(
-            (dragon_bounds.max.x - dragon_bounds.min.x) * 0.5,
-            (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
-            (dragon_bounds.max.z - dragon_bounds.min.z) * 0.8,
-        ),
-        radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
-        material: Material {
-            emission: spectrum::ZERO,
-            // brdf: DielectricBrdf { ior: material::physical::ior_glass() },
-            // enter_medium: Vacuum,
-            brdf: ThinDielectricBrdf {
-                ior: material::physical::ior_glass(),
-            },
-            enter_medium: TestMedium {
-                absorption: spectrum::ZERO,
-                emission: spectrum::ZERO,
-                scattering: spectrum::ConstantSpectrum(10.0),
-            },
-            exit_medium: atmosphere.clone(),
-        },
-    });
+    // scene.add(Sphere {
+    //     origin: DVec3::new(
+    //         (dragon_bounds.max.x - dragon_bounds.min.x) * 0.5,
+    //         (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
+    //         (dragon_bounds.max.z - dragon_bounds.min.z) * 0.8,
+    //     ),
+    //     radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
+    //     material: Material {
+    //         emission: spectrum::ZERO,
+    //         // brdf: DielectricBrdf { ior: material::physical::ior_glass() },
+    //         // enter_medium: Vacuum,
+    //         brdf: ThinDielectricBrdf {
+    //             ior: material::physical::ior_glass(),
+    //         },
+    //         enter_medium: TestMedium {
+    //             absorption: spectrum::ZERO,
+    //             emission: spectrum::ZERO,
+    //             scattering: spectrum::ConstantSpectrum(10.0),
+    //         },
+    //         exit_medium: atmosphere.clone(),
+    //     },
+    // });
     scene.add(Sphere {
         origin: DVec3::ZERO,
         radius: 1.0,
@@ -192,6 +194,21 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
             brdf: (),
             enter_medium: atmosphere.clone(),
             exit_medium: Vacuum,
+        },
+    });
+
+    scene.add(Sphere {
+        origin: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5 * DVec3::Y,
+        radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
+        material: Material {
+            emission: spectrum::ZERO,
+            brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
+            // brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
+            // brdf: LambertianBrdf {
+            //     albedo: ConstantSpectrum(1.0),
+            // },
+            enter_medium: (),
+            exit_medium: (),
         },
     });
 
@@ -298,8 +315,8 @@ pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
             height_scale: 8000.0,
             ozone_start_altitude: 12_000.0,
             ozone_peak_altitude: 32_000.0,
-            ozone_peak_concentration: 12e-6,
-            ozone_height_scale: 12_000.0,
+            ozone_peak_concentration: 8e-6,
+            ozone_height_scale: 15_000.0,
         },
         m2: AtmosphereAerosols {
             origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),

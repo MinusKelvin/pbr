@@ -2,6 +2,7 @@ use std::f64::consts::PI;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use brdf::TrowbridgeReitzDistribution;
 use clap::Parser;
 use glam::{DMat3, DVec2, DVec3, DVec4};
 use medium::Medium;
@@ -37,10 +38,34 @@ struct Options {
 }
 
 fn main() {
+    // let distr = TrowbridgeReitzDistribution { alpha: 0.1 };
+
+    // let mut value = 0.0;
+    // let mut count = 0.0;
+
+    // let macro_normal = random::sphere(thread_rng().gen());
+    // let mut d = random::sphere(thread_rng().gen());
+    // if d.dot(macro_normal) > 0.0 {
+    //     d = -d;
+    // }
+
+    // for _ in 0..100000 {
+    //     let micro_normal = distr.sample_micro_normal(d, macro_normal, thread_rng().gen());
+    //     let pdf = distr.micro_normal_pdf(d, micro_normal, macro_normal);
+    //     assert!(d.dot(micro_normal) < 0.0);
+    //     value += distr.density(d, micro_normal, macro_normal) / pdf;
+    //     count += 1.0;
+    // }
+
+    // println!("{}, {macro_normal} {d}", value / count);
+
+    // return;
+
     let opt = Options::parse();
 
     let (scene, camera, looking, camera_medium) =
-        scene_description::atmosphere_scene(opt.sun_angle);
+        // scene_description::atmosphere_scene(opt.sun_angle);
+        scene_description::load();
 
     let mut film = Film::new(opt.width, opt.height);
 

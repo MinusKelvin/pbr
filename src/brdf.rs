@@ -1,10 +1,18 @@
 use std::f64::consts::PI;
 
-use glam::{DVec2, DVec3, DVec4, FloatExt, Vec3Swizzles};
-use num::complex::Complex64;
+use glam::{DMat3, DVec3, DVec4, FloatExt, Vec3Swizzles};
 
 use crate::random;
 use crate::spectrum::Spectrum;
+
+mod phong;
+pub use phong::*;
+
+mod conductor;
+pub use conductor::*;
+
+mod dielectric;
+pub use dielectric::*;
 
 pub struct BrdfSample {
     pub dir: DVec3,
@@ -82,276 +90,6 @@ impl<S: Spectrum> Brdf for LambertianBrdf<S> {
 }
 
 #[derive(Clone)]
-pub struct PhongSpecularBrdf<S> {
-    pub albedo: S,
-    pub power: f64,
-}
-
-impl<S: Spectrum> Brdf for PhongSpecularBrdf<S> {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambdas: DVec4) -> DVec4 {
-        if outgoing.dot(normal) > 0.0 || incoming.dot(normal) < 0.0 {
-            return DVec4::ZERO;
-        }
-        let reflect = outgoing.reflect(normal);
-        self.albedo.sample_multi(lambdas) * (self.power + 2.0) / (2.0 * PI)
-            * incoming.dot(reflect).max(0.0).powf(self.power)
-    }
-
-    fn sample(&self, outgoing: DVec3, normal: DVec3, lambdas: DVec4, random: DVec3) -> BrdfSample {
-        let reflect = outgoing.reflect(normal);
-
-        let z = random.x.powf(1.0 / (self.power + 1.0));
-        let angle = 2.0 * PI * random.y;
-        let (y, x) = angle.sin_cos();
-        let r = (1.0 - z * z).sqrt();
-        let d = DVec2::new(x, y) * r;
-
-        let tangent = reflect.cross(normal).normalize();
-        let bitangent = reflect.cross(tangent);
-        let incoming = d.x * tangent + d.y * bitangent + z * reflect;
-
-        BrdfSample {
-            dir: incoming,
-            pdf: self.pdf(incoming, outgoing, normal, lambdas.x),
-            f: self.f(incoming, outgoing, normal, lambdas),
-            terminate_secondary: false,
-            singular: false,
-        }
-    }
-
-    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
-        _ = lambda;
-        let reflect = outgoing.reflect(normal);
-        (self.power + 1.0) / (2.0 * PI) * incoming.dot(reflect).max(0.0).powf(self.power)
-    }
-}
-
-#[derive(Clone)]
-pub struct PhongRetroBrdf<S> {
-    pub power: f64,
-    pub albedo: S,
-}
-
-impl<S: Spectrum> Brdf for PhongRetroBrdf<S> {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambdas: DVec4) -> DVec4 {
-        if outgoing.dot(normal) > 0.0 || incoming.dot(normal) < 0.0 {
-            return DVec4::ZERO;
-        }
-        let retro = -outgoing;
-        self.albedo.sample_multi(lambdas) * (self.power + 2.0) / (2.0 * PI)
-            * incoming.dot(retro).max(0.0).powf(self.power)
-    }
-
-    fn sample(&self, outgoing: DVec3, normal: DVec3, lambdas: DVec4, random: DVec3) -> BrdfSample {
-        let retro = -outgoing;
-
-        let z = random.x.powf(1.0 / (self.power + 1.0));
-        let angle = 2.0 * PI * random.y;
-        let (y, x) = angle.sin_cos();
-        let r = (1.0 - z * z).sqrt();
-        let d = DVec2::new(x, y) * r;
-
-        let tangent = retro.cross(normal).normalize();
-        let bitangent = retro.cross(tangent);
-        let incoming = d.x * tangent + d.y * bitangent + z * retro;
-
-        BrdfSample {
-            dir: incoming,
-            pdf: self.pdf(incoming, outgoing, normal, lambdas.x),
-            f: self.f(incoming, outgoing, normal, lambdas),
-            terminate_secondary: false,
-            singular: false,
-        }
-    }
-
-    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
-        _ = normal;
-        _ = lambda;
-        let retro = -outgoing;
-        (self.power + 1.0) / (2.0 * PI) * incoming.dot(retro).max(0.0).powf(self.power)
-    }
-}
-
-#[derive(Clone)]
-pub struct SmoothConductorBrdf<Sr, Si> {
-    pub ior_re: Sr,
-    pub ior_im: Si,
-}
-
-impl<'a, S> SmoothConductorBrdf<&'a S, &'a S> {
-    pub fn new(ior: &'a [S; 2]) -> Self {
-        SmoothConductorBrdf {
-            ior_re: &ior[0],
-            ior_im: &ior[1],
-        }
-    }
-}
-
-impl<Sr: Spectrum, Si: Spectrum> Brdf for SmoothConductorBrdf<Sr, Si> {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = incoming;
-        _ = outgoing;
-        _ = normal;
-        _ = lambdas;
-        DVec4::ZERO
-    }
-
-    fn sample(&self, outgoing: DVec3, normal: DVec3, lambdas: DVec4, random: DVec3) -> BrdfSample {
-        _ = random;
-        let cos_i = -outgoing.dot(normal);
-        if cos_i < 0.0 {
-            return BrdfSample {
-                dir: DVec3::ZERO,
-                pdf: 0.0,
-                f: DVec4::ZERO,
-                terminate_secondary: false,
-                singular: true,
-            };
-        }
-        let incoming = outgoing.reflect(normal);
-        let ior_re = self.ior_re.sample_multi(lambdas);
-        let ior_im = self.ior_im.sample_multi(lambdas);
-        let mut fresnel = DVec4::ZERO;
-        for i in 0..4 {
-            fresnel[i] = fresnel_reflectance_complex(cos_i, Complex64::new(ior_re[i], ior_im[i]));
-        }
-        BrdfSample {
-            dir: incoming,
-            pdf: 1.0,
-            f: fresnel / cos_i,
-            terminate_secondary: false,
-            singular: true,
-        }
-    }
-
-    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
-        _ = incoming;
-        _ = outgoing;
-        _ = normal;
-        _ = lambda;
-        0.0
-    }
-}
-
-#[derive(Clone)]
-pub struct DielectricBrdf<S> {
-    pub ior: S,
-}
-
-impl<S: Spectrum> Brdf for DielectricBrdf<S> {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = incoming;
-        _ = outgoing;
-        _ = normal;
-        _ = lambdas;
-        DVec4::ZERO
-    }
-
-    fn sample(&self, outgoing: DVec3, normal: DVec3, lambdas: DVec4, random: DVec3) -> BrdfSample {
-        _ = random;
-        let ior = self.ior.sample_multi(lambdas);
-        let (ior, normal) = match outgoing.dot(normal) < 0.0 {
-            true => (ior, normal),
-            false => (1.0 / ior, -normal),
-        };
-        let reflected = outgoing.reflect(normal);
-        let cos_i = reflected.dot(normal);
-        let fresnel_reflect = ior.map(|ior| fresnel_reflectance_real(cos_i, ior));
-
-        if random.z < fresnel_reflect.x {
-            BrdfSample {
-                dir: reflected,
-                pdf: fresnel_reflect.x,
-                f: fresnel_reflect / cos_i,
-                terminate_secondary: false,
-                singular: true,
-            }
-        } else {
-            let refracted = outgoing.refract(normal, 1.0 / ior.x);
-            BrdfSample {
-                dir: refracted,
-                pdf: 1.0 - fresnel_reflect.x,
-                f: DVec4::splat(
-                    (1.0 - fresnel_reflect.x) / refracted.dot(normal).abs() / (ior.x * ior.x),
-                ),
-                terminate_secondary: true,
-                singular: true,
-            }
-        }
-    }
-
-    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
-        _ = incoming;
-        _ = outgoing;
-        _ = normal;
-        _ = lambda;
-        0.0
-    }
-}
-
-#[derive(Clone)]
-pub struct ThinDielectricBrdf<S> {
-    pub ior: S,
-}
-
-impl<S: Spectrum> Brdf for ThinDielectricBrdf<S> {
-    fn f(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambdas: DVec4) -> DVec4 {
-        _ = incoming;
-        _ = outgoing;
-        _ = normal;
-        _ = lambdas;
-        DVec4::ZERO
-    }
-
-    fn sample(
-        &self,
-        outgoing: DVec3,
-        mut normal: DVec3,
-        lambdas: DVec4,
-        random: DVec3,
-    ) -> BrdfSample {
-        _ = random;
-        let ior = self.ior.sample_multi(lambdas);
-        if outgoing.dot(normal) > 0.0 {
-            normal = -normal;
-        }
-
-        let reflected = outgoing.reflect(normal);
-        let cos_i = reflected.dot(normal);
-        let mut fresnel_reflect = ior.map(|ior| fresnel_reflectance_real(cos_i, ior));
-        let t = 1.0 - fresnel_reflect;
-        let adjust = t * t * fresnel_reflect / (1.0 - fresnel_reflect * fresnel_reflect);
-        fresnel_reflect += DVec4::select(fresnel_reflect.cmplt(DVec4::ONE), adjust, DVec4::ZERO);
-
-        if random.z < fresnel_reflect.x {
-            BrdfSample {
-                dir: reflected,
-                pdf: fresnel_reflect.x,
-                f: fresnel_reflect / cos_i,
-                terminate_secondary: false,
-                singular: true,
-            }
-        } else {
-            BrdfSample {
-                dir: outgoing,
-                pdf: 1.0 - fresnel_reflect.x,
-                f: (1.0 - fresnel_reflect) / cos_i,
-                terminate_secondary: false,
-                singular: true,
-            }
-        }
-    }
-
-    fn pdf(&self, incoming: DVec3, outgoing: DVec3, normal: DVec3, lambda: f64) -> f64 {
-        _ = incoming;
-        _ = outgoing;
-        _ = normal;
-        _ = lambda;
-        0.0
-    }
-}
-
-#[derive(Clone)]
 pub struct CompositeBrdf<A, B> {
     pub a_weight: f64,
     pub a: A,
@@ -408,27 +146,82 @@ impl<A: Brdf, B: Brdf> Brdf for CompositeBrdf<A, B> {
     }
 }
 
-fn fresnel_reflectance_real(cos_i: f64, rel_ior: f64) -> f64 {
-    let sin2_i = 1.0 - cos_i * cos_i;
-    let sin2_t = sin2_i / (rel_ior * rel_ior);
-    if sin2_t >= 1.0 {
-        return 1.0;
-    }
-    let cos_t = (1.0 - sin2_t).sqrt();
-
-    let r_par = (rel_ior * cos_i - cos_t) / (rel_ior * cos_i + cos_t);
-    let r_perp = (cos_i - rel_ior * cos_t) / (cos_i + rel_ior * cos_t);
-
-    (r_par * r_par + r_perp * r_perp) / 2.0
+#[derive(Clone)]
+pub struct TrowbridgeReitzDistribution {
+    pub alpha: f64,
 }
 
-fn fresnel_reflectance_complex(cos_i: f64, rel_ior: Complex64) -> f64 {
-    let sin2_i = 1.0 - cos_i * cos_i;
-    let sin2_t = sin2_i / (rel_ior * rel_ior);
-    let cos_t = (1.0 - sin2_t).sqrt();
+impl TrowbridgeReitzDistribution {
+    pub fn d(&self, micro_normal: DVec3, macro_normal: DVec3) -> f64 {
+        let alpha2 = self.alpha * self.alpha;
+        let cos_theta = micro_normal.dot(macro_normal);
+        let cos2_theta = cos_theta * cos_theta;
+        let cos4_theta = cos2_theta * cos2_theta;
+        let sin2_theta = 1.0 - cos2_theta;
+        let tan2_theta = sin2_theta / cos2_theta;
+        if tan2_theta.is_infinite() {
+            return 0.0;
+        }
+        let t = 1.0 + tan2_theta / alpha2;
+        1.0 / (PI * alpha2 * cos4_theta * t * t)
+    }
 
-    let r_par = (rel_ior * cos_i - cos_t) / (rel_ior * cos_i + cos_t);
-    let r_perp = (cos_i - rel_ior * cos_t) / (cos_i + rel_ior * cos_t);
+    pub fn effectively_smooth(&self) -> bool {
+        self.alpha < 0.001
+    }
 
-    (r_par.norm_sqr() + r_perp.norm_sqr()) / 2.0
+    pub fn g1(&self, d: DVec3, macro_normal: DVec3) -> f64 {
+        1.0 / (1.0 + self.lambda(d, macro_normal))
+    }
+
+    pub fn lambda(&self, d: DVec3, macro_normal: DVec3) -> f64 {
+        let cos_theta = d.dot(macro_normal);
+        let cos2_theta = cos_theta * cos_theta;
+        let sin2_theta = 1.0 - cos2_theta;
+        let tan2_theta = sin2_theta / cos2_theta;
+        if tan2_theta.is_infinite() {
+            return 0.0;
+        }
+        ((1.0 + self.alpha * self.alpha * tan2_theta).sqrt() - 1.0) / 2.0
+    }
+
+    pub fn g(&self, incoming: DVec3, outgoing: DVec3, macro_normal: DVec3) -> f64 {
+        1.0 / (1.0 + self.lambda(incoming, macro_normal) + self.lambda(-outgoing, macro_normal))
+    }
+
+    pub fn density(&self, outgoing: DVec3, micro_normal: DVec3, macro_normal: DVec3) -> f64 {
+        let outgoing = -outgoing;
+        self.g1(outgoing, macro_normal) / outgoing.dot(macro_normal).abs()
+            * self.d(micro_normal, macro_normal)
+            * outgoing.dot(micro_normal).abs()
+    }
+
+    pub fn micro_normal_pdf(&self, d: DVec3, micro_normal: DVec3, macro_normal: DVec3) -> f64 {
+        self.density(d, micro_normal, macro_normal)
+    }
+
+    pub fn sample_micro_normal(&self, outgoing: DVec3, macro_normal: DVec3, random: DVec3) -> DVec3 {
+        let (macro_x, macro_y) = macro_normal.any_orthonormal_pair();
+        let to_global = DMat3::from_cols(macro_x, macro_y, macro_normal);
+        let to_local = to_global.transpose();
+        let outgoing = to_local * outgoing;
+
+        let mut wh = (outgoing.xy() * self.alpha).extend(outgoing.z).normalize();
+        if wh.z < 0.0 {
+            wh = -wh;
+        }
+
+        let (t1, t2) = wh.any_orthonormal_pair();
+
+        let mut p = crate::random::disk(random.xy());
+
+        let h = (1.0 - p.x * p.x).sqrt();
+        p.y = h.lerp(p.y, (1.0 + wh.z) / 2.0);
+
+        let pz = 0.0f64.max(1.0 - p.length_squared()).sqrt();
+        let nh = p.x * t1 + p.y * t2 + pz * wh;
+        let r = (nh.xy() * self.alpha).extend(nh.z.max(1e-6)).normalize();
+
+        to_global * r
+    }
 }
