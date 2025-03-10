@@ -5,6 +5,9 @@ use glam::{BVec3, DMat4, DVec3, Vec3Swizzles};
 use crate::material::MaterialErased;
 use crate::Bounds;
 
+mod voxel;
+pub use voxel::*;
+
 pub struct RayHit<'a> {
     pub t: f64,
     pub normal: DVec3,

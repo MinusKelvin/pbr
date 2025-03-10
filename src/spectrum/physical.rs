@@ -7,7 +7,7 @@ use super::Spectrum;
 pub fn cie_d65_1nit() -> &'static impl Spectrum {
     static CIE_D65: LazyLock<PiecewiseLinearSpectrum> = LazyLock::new(|| {
         let mut d65 = PiecewiseLinearSpectrum::from_csv(include_str!("CIE_std_illum_D65.csv"));
-        let d65_y = super::integrate_product(&d65, &cie_xyz()[1]);
+        let d65_y = super::integrate_product(&d65, &cie_xyz_absolute()[1]);
         for v in &mut d65.data {
             v.1 /= d65_y;
         }
@@ -16,9 +16,17 @@ pub fn cie_d65_1nit() -> &'static impl Spectrum {
     &*CIE_D65
 }
 
-pub fn cie_xyz() -> &'static [impl Spectrum; 3] {
+/// Normalized to give Y in cd/m^2
+pub fn cie_xyz_absolute() -> &'static [impl Spectrum; 3] {
     static CIE_XYZ: LazyLock<[PiecewiseLinearSpectrum; 3]> = LazyLock::new(|| {
-        PiecewiseLinearSpectrum::from_csv_multi(include_str!("CIE_xyz_1931_2deg.csv"))
+        let mut xyz =
+            PiecewiseLinearSpectrum::from_csv_multi(include_str!("CIE_xyz_1931_2deg.csv"));
+        for component in &mut xyz {
+            for v in &mut component.data {
+                v.1 *= 683.002;
+            }
+        }
+        xyz
     });
     &CIE_XYZ
 }

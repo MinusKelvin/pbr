@@ -12,7 +12,7 @@ use crate::material::Material;
 use crate::medium::{
     AtmosphereAerosols, AtmosphereDryAir, CombinedMedium, Medium, TestMedium, Vacuum,
 };
-use crate::objects::{SetMaterial, Sphere, Transform, Triangle};
+use crate::objects::{SetMaterial, Sphere, Transform, Triangle, VoxelOctree};
 use crate::scene::Scene;
 use crate::spectrum::physical::extraterrestrial_solar_irradiance;
 use crate::spectrum::{AmplifiedSpectrum, ConstantSpectrum, PiecewiseLinearSpectrum};
@@ -55,6 +55,35 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         },
     )
     .unwrap();
+    let voxel_world = VoxelOctree::load(
+        "world.dat",
+        vec![
+            Arc::new(Material {
+                emission: spectrum::ZERO,
+                brdf: LambertianBrdf {
+                    albedo: ConstantSpectrum(0.5),
+                },
+                enter_medium: (),
+                exit_medium: (),
+            }),
+            Arc::new(Material {
+                emission: spectrum::ZERO,
+                brdf: LambertianBrdf {
+                    albedo: ConstantSpectrum(1.0),
+                },
+                enter_medium: (),
+                exit_medium: (),
+            }),
+            Arc::new(Material {
+                emission: spectrum::ZERO,
+                brdf: LambertianBrdf {
+                    albedo: ConstantSpectrum(0.1),
+                },
+                enter_medium: (),
+                exit_medium: (),
+            }),
+        ],
+    );
     println!("Took {:.2?} to load models", t.elapsed());
 
     let cb_dragon = dragon_bounds.centroid().with_y(dragon_bounds.min.y);
@@ -197,31 +226,36 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         },
     });
 
-    scene.add(Sphere {
-        origin: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5 * DVec3::Y,
-        radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
-        material: Material {
-            emission: spectrum::ZERO,
-            brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
-            // brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
-            // brdf: LambertianBrdf {
-            //     albedo: ConstantSpectrum(1.0),
-            // },
-            enter_medium: (),
-            exit_medium: (),
-        },
-    });
+    // scene.add(Sphere {
+    //     origin: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5 * DVec3::Y,
+    //     radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
+    //     material: Material {
+    //         emission: spectrum::ZERO,
+    //         brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
+    //         // brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
+    //         // brdf: LambertianBrdf {
+    //         //     albedo: ConstantSpectrum(1.0),
+    //         // },
+    //         enter_medium: (),
+    //         exit_medium: (),
+    //     },
+    // });
 
-    scene.add_light(DistantDiskLight {
-        emission: AmplifiedSpectrum {
-            factor: 25.0,
-            // factor: 50000.0,
+    scene.add(Transform::new(
+        DMat4::from_scale(DVec3::splat(
+            (dragon_bounds.max.z - dragon_bounds.min.z) * 1.5,
+        )),
+        voxel_world,
+    ));
+
+    scene.add_light(DistantDiskLight::from_irradiance(
+        DVec3::new(-1.0, 0.5, -0.3).normalize(),
+        10.0f64.to_radians().cos(),
+        AmplifiedSpectrum {
+            factor: 1000.0,
             s: spectrum::physical::cie_d65_1nit(),
         },
-        dir: DVec3::new(-1.0, 0.5, -0.3).normalize(),
-        cos_radius: 10.0f64.to_radians().cos(),
-        // cos_radius: 0.268f64.to_radians().cos(),
-    });
+    ));
 
     let scale = (dragon_bounds.max - dragon_bounds.min).length() * 0.8;
 
@@ -351,14 +385,33 @@ pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
         },
     });
 
+    scene.add(Transform::new(
+        DMat4::from_scale_rotation_translation(
+            DVec3::new(8192.0, 8192.0, -8192.0),
+            DQuat::IDENTITY,
+            DVec3::new(-4096.0, 0.0, 4096.0),
+        ),
+        VoxelOctree::load(
+            "world.dat",
+            vec![Arc::new(Material {
+                emission: spectrum::ZERO,
+                brdf: LambertianBrdf {
+                    albedo: ConstantSpectrum(0.18),
+                },
+                enter_medium: (),
+                exit_medium: (),
+            })],
+        ),
+    ));
+
     scene.add_light(DistantDiskLight::from_irradiance(
         DVec3::new(0.0, sun_angle.sin(), -sun_angle.cos()).normalize(),
         0.268f64.to_radians().cos(),
         extraterrestrial_solar_irradiance(),
     ));
 
-    let looking = DMat3::from_euler(EulerRot::YXZ, -0.3, 0.3, 0.0);
-    let camera = DVec3::new(0.0, 10.0, 0.0);
+    let looking = DMat3::from_euler(EulerRot::YXZ, -0.3, 0.4, 0.0);
+    let camera = DVec3::new(-2072.75, 371.0, 3110.6);
 
     (scene, camera, looking, atmosphere)
 }

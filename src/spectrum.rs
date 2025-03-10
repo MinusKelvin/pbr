@@ -135,15 +135,8 @@ pub fn integrate_product(a: &impl Spectrum, b: &impl Spectrum) -> f64 {
     result / N as f64
 }
 
-pub fn spectrum_to_xyz(spectrum: &impl Spectrum) -> DVec3 {
-    physical::cie_xyz()
-        .each_ref()
-        .map(|matcher| integrate_product(spectrum, matcher))
-        .into()
-}
-
-pub fn lambda_to_xyz(lambda: f64) -> DVec3 {
-    physical::cie_xyz()
+pub fn lambda_to_xyz_absolute(lambda: f64) -> DVec3 {
+    physical::cie_xyz_absolute()
         .each_ref()
         .map(|matcher| matcher.sample(lambda))
         .into()

@@ -1,7 +1,7 @@
 use glam::{DVec3, FloatExt};
 use rand::{thread_rng, Rng};
 
-use crate::spectrum::{lambda_to_xyz, spectrum_to_xyz, srgb_to_xyz, xyz_to_srgb, VISIBLE};
+use crate::spectrum::{srgb_to_xyz, xyz_to_srgb, VISIBLE};
 
 use super::physical::cie_d65_1nit;
 use super::{ConstantSpectrum, Spectrum};

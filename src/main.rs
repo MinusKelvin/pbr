@@ -38,34 +38,11 @@ struct Options {
 }
 
 fn main() {
-    // let distr = TrowbridgeReitzDistribution { alpha: 0.1 };
-
-    // let mut value = 0.0;
-    // let mut count = 0.0;
-
-    // let macro_normal = random::sphere(thread_rng().gen());
-    // let mut d = random::sphere(thread_rng().gen());
-    // if d.dot(macro_normal) > 0.0 {
-    //     d = -d;
-    // }
-
-    // for _ in 0..100000 {
-    //     let micro_normal = distr.sample_micro_normal(d, macro_normal, thread_rng().gen());
-    //     let pdf = distr.micro_normal_pdf(d, micro_normal, macro_normal);
-    //     assert!(d.dot(micro_normal) < 0.0);
-    //     value += distr.density(d, micro_normal, macro_normal) / pdf;
-    //     count += 1.0;
-    // }
-
-    // println!("{}, {macro_normal} {d}", value / count);
-
-    // return;
-
     let opt = Options::parse();
 
     let (scene, camera, looking, camera_medium) =
-        // scene_description::atmosphere_scene(opt.sun_angle);
-        scene_description::load();
+        scene_description::atmosphere_scene(opt.sun_angle);
+        // scene_description::load();
 
     let mut film = Film::new(opt.width, opt.height);
 
@@ -277,7 +254,7 @@ fn render(
             let radiance = path_trace::path_trace(scene, camera, d, lambdas, camera_medium);
             let mut value = DVec3::ZERO;
             for i in 0..4 {
-                value += 683.002 * (radiance[i] / pdf / 4.0) * spectrum::lambda_to_xyz(lambdas[i]);
+                value += (radiance[i] / pdf / 4.0) * spectrum::lambda_to_xyz_absolute(lambdas[i]);
             }
 
             pixel.accumulate_sample(value);
