@@ -1,4 +1,5 @@
 /target
 /i
 /*.png
+/*.exr
 /*.sh

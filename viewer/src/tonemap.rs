@@ -5,8 +5,8 @@ use egui::{ComboBox, Slider, Ui, Widget};
 use glam::{Mat3, Vec3, Vec4};
 use winit::event_loop::EventLoopProxy;
 
-mod krawczyk_2005;
-mod none;
+pub mod krawczyk_2005;
+pub mod none;
 
 use crate::Image;
 
@@ -66,6 +66,10 @@ impl TonemapOptions {
         if self.needs_update {
             self.process();
         }
+    }
+
+    pub fn refresh(&mut self) {
+        self.process();
     }
 
     fn process(&mut self) {

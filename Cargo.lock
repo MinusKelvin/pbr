@@ -2385,6 +2385,7 @@ dependencies = [
  "egui-winit",
  "exr",
  "glam 0.30.0",
+ "image",
  "pollster",
  "wgpu",
  "winit",

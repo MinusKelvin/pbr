@@ -4,7 +4,7 @@ mod viewer;
 
 use std::error::Error;
 use std::ops::{Index, IndexMut};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use egui::{Slider, Ui, Widget};
@@ -30,8 +30,9 @@ struct App {
     egui: EguiSetup,
     viewer: Viewer,
 
-    tonemapper: TonemapOptions,
-    image: Arc<Image<Vec3>>,
+    tonemappers: Vec<TonemapOptions>,
+    images: Vec<(String, Arc<Image<Vec3>>, PathBuf)>,
+    selected: usize,
     scale: f32,
 
     mpos: Option<(usize, usize)>,
@@ -39,18 +40,26 @@ struct App {
     window: Arc<Window>,
 }
 
-type InitArgs = (EventLoopProxy<Image<Vec4>>, String, Image<Vec3>);
+type InitArgs = (
+    EventLoopProxy<Image<Vec4>>,
+    Vec<(String, Arc<Image<Vec3>>, PathBuf)>,
+);
 
 impl App {
-    async fn new(el: &ActiveEventLoop, (proxy, filename, image): InitArgs) -> Self {
-        let image = Arc::new(image);
-        let tonemapper = TonemapOptions::new(image.clone(), proxy);
+    async fn new(el: &ActiveEventLoop, (proxy, images): InitArgs) -> Self {
+        let tonemappers = images
+            .iter()
+            .map(|(_, img, _)| TonemapOptions::new(img.clone(), proxy.clone()))
+            .collect();
 
         let window = el
             .create_window(
                 WindowAttributes::default()
-                    .with_title(format!("MinusKelvin PBR Viewer - {filename}"))
-                    .with_inner_size(PhysicalSize::new(image.width as u32, image.height as u32))
+                    .with_title(format!("MinusKelvin PBR Viewer - {}", images[0].0))
+                    .with_inner_size(PhysicalSize::new(
+                        images[0].1.width as u32 * 3,
+                        images[0].1.height as u32 * 3,
+                    ))
                     .with_resizable(false),
             )
             .unwrap();
@@ -114,8 +123,8 @@ impl App {
         let viewer = Viewer::new(
             &device,
             config.format,
-            image.width as u32,
-            image.height as u32,
+            images[0].1.width as u32,
+            images[0].1.height as u32,
         );
         let egui = EguiSetup::new(&device, window.clone(), size, config.format);
 
@@ -131,9 +140,10 @@ impl App {
             egui,
             viewer,
 
-            tonemapper,
-            image,
-            scale: 1.0,
+            tonemappers,
+            images,
+            selected: 0,
+            scale: 3.0,
             mpos: None,
 
             window,
@@ -142,7 +152,7 @@ impl App {
 
     fn user_event(&mut self, updated: Image<Vec4>) {
         self.viewer.update_image(&self.queue, updated);
-        self.tonemapper.updated();
+        self.tonemappers[self.selected].updated();
     }
 
     fn event(&mut self, event: WindowEvent, el: &ActiveEventLoop) {
@@ -169,12 +179,14 @@ impl App {
                     .request_inner_size(PhysicalSize::new(self.config.width, self.config.height));
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let x = position.x / self.config.width as f64 * self.image.width as f64;
-                let y = position.y / self.config.height as f64 * self.image.height as f64;
+                let x = position.x / self.config.width as f64
+                    * self.images[self.selected].1.width as f64;
+                let y = position.y / self.config.height as f64
+                    * self.images[self.selected].1.height as f64;
                 let in_bounds = x >= 0.0
-                    && x < self.image.width as f64
+                    && x < self.images[self.selected].1.width as f64
                     && y >= 0.0
-                    && y < self.image.height as f64;
+                    && y < self.images[self.selected].1.height as f64;
                 self.mpos = in_bounds.then(|| (x as usize, y as usize));
             }
             WindowEvent::RedrawRequested => match self.surface.get_current_texture() {
@@ -188,11 +200,24 @@ impl App {
 
                     let render = |ui: &mut Ui| {
                         match self.mpos {
-                            Some(p) => ui.label(format!("XYZ: {:.4?}", self.image[p])),
+                            Some(p) => {
+                                ui.label(format!("XYZ: {:.4?}", self.images[self.selected].1[p]))
+                            }
                             None => ui.label("XYZ: -"),
                         };
 
-                        resize = Slider::new(&mut self.scale, 0.5..=4.0)
+                        if self.images.len() > 1 {
+                            let changed =
+                                Slider::new(&mut self.selected, 0..=self.images.len() - 1)
+                                    .ui(ui)
+                                    .changed();
+                            if changed {
+                                resize |= true;
+                                self.tonemappers[self.selected].refresh();
+                            }
+                        }
+
+                        resize |= Slider::new(&mut self.scale, 0.5..=8.0)
                             .step_by(0.5)
                             .ui(ui)
                             .changed();
@@ -211,7 +236,7 @@ impl App {
 
                         ui.separator();
 
-                        self.tonemapper.ui(ui);
+                        self.tonemappers[self.selected].ui(ui);
                     };
 
                     self.egui
@@ -244,8 +269,10 @@ impl App {
                     frame.present();
 
                     if resize {
-                        let width = (self.scale * self.image.width as f32).round() as u32;
-                        let height = (self.scale * self.image.height as f32).round() as u32;
+                        let width =
+                            (self.scale * self.images[self.selected].1.width as f32).round() as u32;
+                        let height = (self.scale * self.images[self.selected].1.height as f32)
+                            .round() as u32;
                         if let Some(size) = self
                             .window
                             .request_inner_size(PhysicalSize::new(width, height))
@@ -321,41 +348,75 @@ impl<T> IndexMut<(usize, usize)> for Image<T> {
 
 fn main() {
     let result = (|| -> Result<_, Box<dyn Error>> {
-        let path = std::env::args_os()
-            .nth(1)
-            .ok_or("Must specify raw image file as argument")?;
-        let path = Path::new(&path);
+        let mut iter = std::env::args_os().skip(1).peekable();
+        let mode = iter
+            .next_if(|s| s.to_str().is_some_and(|s| s.starts_with("--")))
+            .and_then(|s| s.to_str().map(|s| s.to_string()));
 
-        use exr::prelude::*;
-        let image = read()
-            .no_deep_data()
-            .largest_resolution_level()
-            .rgb_channels(
-                |size, _| crate::Image::from_pixel(size.0, size.1, Vec3::ZERO),
-                |pixels, xy, p| pixels[(xy.0, xy.1)] = Vec3::from(p),
-            )
-            .first_valid_layer()
-            .all_attributes()
-            .from_file(path)?;
-        let image = image.layer_data.channel_data.pixels;
+        let mut images = vec![];
+        for path in iter {
+            let path = Path::new(&path);
+            use exr::prelude::*;
+            let image = read()
+                .no_deep_data()
+                .largest_resolution_level()
+                .rgb_channels(
+                    |size, _| crate::Image::from_pixel(size.0, size.1, Vec3::ZERO),
+                    |pixels, xy, p| pixels[(xy.0, xy.1)] = Vec3::from(p),
+                )
+                .first_valid_layer()
+                .all_attributes()
+                .from_file(path)?;
+            let image = image.layer_data.channel_data.pixels;
 
-        Ok((
-            path.file_stem().unwrap().to_string_lossy().into_owned(),
-            image,
-        ))
+            images.push((
+                path.file_stem().unwrap().to_string_lossy().into_owned(),
+                Arc::new(image),
+                path.to_owned(),
+            ));
+        }
+        if images.is_empty() {
+            eprintln!("At least one image must be provided");
+            std::process::exit(1);
+        }
+        Ok((mode, images))
     })();
 
-    let (filename, image) = result.unwrap_or_else(|e| {
-        eprintln!("Could not open image: {e}");
-        std::process::exit(1)
-    });
+    let (mode, images) = result.unwrap();
+
+    if let Some(mapper) = mode {
+        for (_, image, path) in images {
+            let result = match &*mapper {
+                "--krawczyk2005" | "--tonemap" => {
+                    tonemap::krawczyk_2005::Options::new(&image).process(&image)
+                }
+                "--none" => tonemap::none::Options::new(&image).process(&image),
+                _ => {
+                    eprintln!("unrecognized tonemapper: {mapper}");
+                    std::process::exit(1);
+                }
+            };
+
+            let img =
+                image::RgbaImage::from_fn(result.width as u32, result.height as u32, |x, y| {
+                    image::Rgba(
+                        result[(x as usize, y as usize)]
+                            .map(|v| (egui::ecolor::gamma_from_linear(v) * 255.0).round())
+                            .as_u8vec4()
+                            .to_array(),
+                    )
+                });
+            img.save(path.with_extension("png")).unwrap();
+        }
+        std::process::exit(0);
+    }
 
     let el = EventLoop::with_user_event().build().unwrap();
     let proxy = el.create_proxy();
 
     el.run_app(&mut LateinitApp {
         app: None,
-        args: Some((proxy, filename, image)),
+        args: Some((proxy, images)),
     })
     .unwrap();
 }
