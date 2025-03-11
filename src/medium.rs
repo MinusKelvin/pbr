@@ -148,6 +148,7 @@ pub struct AtmosphereDryAir {
     pub origin: DVec3,
     pub sea_level: f64,
     pub height_scale: f64,
+    pub sea_level_air_density: f64,
 
     pub ozone_start_altitude: f64,
     pub ozone_peak_altitude: f64,
@@ -158,10 +159,12 @@ pub struct AtmosphereDryAir {
 impl AtmosphereDryAir {
     fn density_coefficient(&self, lambdas: DVec4) -> DVec4 {
         const NSQ_M1: f64 = 1.00029 * 1.00029 - 1.0;
-        const COEFFICIENT: f64 = 8.0 * PI * PI * PI * NSQ_M1 * NSQ_M1 / (3.0 * 2.504e25);
+        const COEFFICIENT: f64 = 8.0 * PI * PI * PI * NSQ_M1 * NSQ_M1 / 3.0;
 
         let lm = lambdas * 1e-9;
-        COEFFICIENT / (lm * lm * lm * lm)
+        let lm2 = lm * lm;
+        let lm4 = lm2 * lm2;
+        COEFFICIENT / (self.sea_level_air_density * lm4)
     }
 
     fn ozone_concentration(&self, h: f64) -> f64 {
@@ -186,7 +189,7 @@ impl Medium for AtmosphereDryAir {
         _ = outgoing;
         let altitude = (pos - self.origin).length() - self.sea_level;
         let density = (-altitude / self.height_scale).exp();
-        let ozone_absorption = density
+        let ozone_absorption = (density * self.sea_level_air_density / 2.504e25)
             * self.ozone_concentration(altitude)
             * spectrum::physical::ozone_absorption_coeff_sea_level().sample_multi(lambdas);
         MediumProperties {

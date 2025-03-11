@@ -1,11 +1,10 @@
+use std::f64::consts::PI;
 use std::sync::Arc;
 use std::time::Instant;
 
 use glam::{DMat3, DMat4, DQuat, DVec3, EulerRot};
 
-use crate::brdf::{
-    DielectricBrdf, LambertianBrdf, RoughConductorBrdf, SmoothConductorBrdf, ThinDielectricBrdf,
-};
+use crate::brdf::*;
 use crate::bvh::Bvh;
 use crate::light::DistantDiskLight;
 use crate::material::Material;
@@ -336,7 +335,7 @@ pub fn simple_volume_scene() -> (Scene, DVec3, DMat3, impl Medium) {
     (scene, camera, looking, Vacuum)
 }
 
-pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
+pub fn atmosphere_scene(time: f64) -> (Scene, DVec3, DMat3, impl Medium) {
     let mut scene = Scene::new();
 
     const PLANET_RADIUS: f64 = 6371000.0;
@@ -347,6 +346,7 @@ pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
             origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),
             sea_level: PLANET_RADIUS,
             height_scale: 8000.0,
+            sea_level_air_density: 2.504e25,
             ozone_start_altitude: 12_000.0,
             ozone_peak_altitude: 32_000.0,
             ozone_peak_concentration: 8e-6,
@@ -367,7 +367,7 @@ pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
         material: Material {
             emission: spectrum::ZERO,
             brdf: LambertianBrdf {
-                albedo: ConstantSpectrum(0.1),
+                albedo: ConstantSpectrum(0.3),
             },
             enter_medium: (),
             exit_medium: (),
@@ -396,7 +396,7 @@ pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
             vec![Arc::new(Material {
                 emission: spectrum::ZERO,
                 brdf: LambertianBrdf {
-                    albedo: ConstantSpectrum(0.18),
+                    albedo: ConstantSpectrum(0.3),
                 },
                 enter_medium: (),
                 exit_medium: (),
@@ -404,14 +404,23 @@ pub fn atmosphere_scene(sun_angle: f64) -> (Scene, DVec3, DMat3, impl Medium) {
         ),
     ));
 
+    let axis_tilt = 0.41;
+    let time_of_year: f64 = 0.0;
+    let latitude: f64 = 38.0f64.to_radians();
+
+    let celestial_pole = DVec3::new(0.0, latitude.sin(), latitude.cos());
+    let celestial_sun_angle = PI / 2.0 - time_of_year.cos() * axis_tilt;
+    let local_sun_angle = celestial_sun_angle + latitude;
+    let sun_noon_pos = DVec3::new(0.0, local_sun_angle.sin(), local_sun_angle.cos());
+
     scene.add_light(DistantDiskLight::from_irradiance(
-        DVec3::new(0.0, sun_angle.sin(), -sun_angle.cos()).normalize(),
+        DQuat::from_axis_angle(celestial_pole, (time - 12.0) / 12.0 * PI) * sun_noon_pos,
         0.268f64.to_radians().cos(),
         extraterrestrial_solar_irradiance(),
     ));
 
-    let looking = DMat3::from_euler(EulerRot::YXZ, -0.3, 0.4, 0.0);
-    let camera = DVec3::new(-2072.75, 371.0, 3110.6);
+    let looking = DMat3::from_euler(EulerRot::YXZ, -PI / 2.0, 0.2, 0.0);
+    let camera = DVec3::new(-3701.4, 455.5, 1999.2);
 
     (scene, camera, looking, atmosphere)
 }

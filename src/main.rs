@@ -1,8 +1,7 @@
 use std::f64::consts::PI;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
-use brdf::TrowbridgeReitzDistribution;
 use clap::Parser;
 use glam::{DMat3, DVec2, DVec3, DVec4};
 use medium::Medium;
@@ -33,15 +32,15 @@ struct Options {
     height: usize,
     #[arg(short, default_value_t = 128)]
     samples: u32,
-    #[arg(long, default_value_t = 1.0, allow_negative_numbers(true))]
-    sun_angle: f64,
+    #[arg(long, default_value_t = 6.0, allow_negative_numbers(true))]
+    time: f64,
 }
 
 fn main() {
     let opt = Options::parse();
 
     let (scene, camera, looking, camera_medium) =
-        scene_description::atmosphere_scene(opt.sun_angle);
+        scene_description::atmosphere_scene(opt.time);
         // scene_description::load();
 
     let mut film = Film::new(opt.width, opt.height);
