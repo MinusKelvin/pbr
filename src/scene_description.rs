@@ -419,6 +419,15 @@ pub fn atmosphere_scene(time: f64) -> (Scene, DVec3, DMat3, impl Medium) {
         extraterrestrial_solar_irradiance(),
     ));
 
+    scene.add_light(DistantDiskLight {
+        emission: AmplifiedSpectrum {
+            factor: 0.06,
+            s: extraterrestrial_solar_irradiance(),
+        },
+        dir: DQuat::from_axis_angle(celestial_pole, time / 12.0 * PI) * sun_noon_pos,
+        cos_radius: 0.268f64.to_radians().cos(),
+    });
+
     let looking = DMat3::from_euler(EulerRot::YXZ, -PI / 2.0, 0.2, 0.0);
     let camera = DVec3::new(-3701.4, 455.5, 1999.2);
 

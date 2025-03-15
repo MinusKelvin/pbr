@@ -1,5 +1,6 @@
 use std::f64::consts::PI;
 use std::path::Path;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use clap::Parser;
@@ -7,8 +8,11 @@ use glam::{DMat3, DVec2, DVec3, DVec4};
 use medium::Medium;
 use ordered_float::OrderedFloat;
 use rand::{thread_rng, Rng};
+use random::Tabulated1DFunction;
 use rayon::prelude::*;
 use scene::Scene;
+use spectrum::physical::cie_xyz_absolute;
+use spectrum::VISIBLE;
 
 mod brdf;
 mod bvh;
@@ -240,25 +244,40 @@ fn render(
                 d = looking * v.normalize();
             }
 
-            let lambda = thread_rng().gen_range(spectrum::VISIBLE);
-            let r = spectrum::VISIBLE.end - spectrum::VISIBLE.start;
-            let pdf = 1.0 / r;
-            let lambdas = DVec4::new(
-                lambda,
-                (lambda + r / 4.0 - spectrum::VISIBLE.start) % r + spectrum::VISIBLE.start,
-                (lambda + 2.0 * r / 4.0 - spectrum::VISIBLE.start) % r + spectrum::VISIBLE.start,
-                (lambda + 3.0 * r / 4.0 - spectrum::VISIBLE.start) % r + spectrum::VISIBLE.start,
-            );
+            let random = thread_rng().gen_range(0.0..1.0);
+            let stratified = (DVec4::splat(random) + DVec4::new(0.0, 0.25, 0.5, 0.75)) % 1.0;
+            let lambdas = stratified.map(sample_wavelengths);
+            let pdf = lambdas.map(wavelength_pdf);
 
             let radiance = path_trace::path_trace(scene, camera, d, lambdas, camera_medium);
             let mut value = DVec3::ZERO;
             for i in 0..4 {
-                value += (radiance[i] / pdf / 4.0) * spectrum::lambda_to_xyz_absolute(lambdas[i]);
+                value +=
+                    (radiance[i] / pdf[i] / 4.0) * spectrum::lambda_to_xyz_absolute(lambdas[i]);
             }
 
             pixel.accumulate_sample(value);
         }
     });
+}
+
+static XYZ_SUM: LazyLock<Tabulated1DFunction> = LazyLock::new(|| {
+    let [x, y, z] = cie_xyz_absolute();
+    let mut data = vec![0.0; x.raw().raw().len()];
+    for i in 0..data.len() {
+        data[i] += x.raw().raw()[i].abs();
+        data[i] += y.raw().raw()[i].abs();
+        data[i] += z.raw().raw()[i].abs();
+    }
+    Tabulated1DFunction::new(&data, VISIBLE.start, VISIBLE.end)
+});
+
+fn sample_wavelengths(random: f64) -> f64 {
+    XYZ_SUM.sample(random)
+}
+
+fn wavelength_pdf(lambda: f64) -> f64 {
+    XYZ_SUM.pdf(lambda)
 }
 
 #[derive(Clone, Copy, Debug)]

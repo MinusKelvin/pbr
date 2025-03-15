@@ -1,24 +1,24 @@
 use std::sync::LazyLock;
 
-use crate::spectrum::PiecewiseLinearSpectrum;
+use crate::spectrum::{PiecewiseLinearSpectrum, TabulatedSpectrum};
 
 use super::Spectrum;
 
-pub fn cie_d65_1nit() -> &'static impl Spectrum {
-    static CIE_D65: LazyLock<PiecewiseLinearSpectrum> = LazyLock::new(|| {
+pub fn cie_d65_1nit() -> &'static TabulatedSpectrum {
+    static CIE_D65: LazyLock<TabulatedSpectrum> = LazyLock::new(|| {
         let mut d65 = PiecewiseLinearSpectrum::from_csv(include_str!("CIE_std_illum_D65.csv"));
         let d65_y = super::integrate_product(&d65, &cie_xyz_absolute()[1]);
         for v in &mut d65.data {
             v.1 /= d65_y;
         }
-        d65
+        TabulatedSpectrum::from_spectrum(d65)
     });
     &*CIE_D65
 }
 
 /// Normalized to give Y in cd/m^2
-pub fn cie_xyz_absolute() -> &'static [impl Spectrum; 3] {
-    static CIE_XYZ: LazyLock<[PiecewiseLinearSpectrum; 3]> = LazyLock::new(|| {
+pub fn cie_xyz_absolute() -> &'static [TabulatedSpectrum; 3] {
+    static CIE_XYZ: LazyLock<[TabulatedSpectrum; 3]> = LazyLock::new(|| {
         let mut xyz =
             PiecewiseLinearSpectrum::from_csv_multi(include_str!("CIE_xyz_1931_2deg.csv"));
         for component in &mut xyz {
@@ -26,23 +26,25 @@ pub fn cie_xyz_absolute() -> &'static [impl Spectrum; 3] {
                 v.1 *= 683.002;
             }
         }
-        xyz
+        xyz.map(TabulatedSpectrum::from_spectrum)
     });
     &CIE_XYZ
 }
 
-pub fn extraterrestrial_solar_irradiance() -> &'static impl Spectrum {
-    static SPECTRUM: LazyLock<PiecewiseLinearSpectrum> = LazyLock::new(|| {
-        PiecewiseLinearSpectrum::from_csv(include_str!("gueymard_1995_extraterrestrial_solar.csv"))
+pub fn extraterrestrial_solar_irradiance() -> &'static TabulatedSpectrum {
+    static SPECTRUM: LazyLock<TabulatedSpectrum> = LazyLock::new(|| {
+        TabulatedSpectrum::from_spectrum(PiecewiseLinearSpectrum::from_csv(include_str!(
+            "gueymard_1995_extraterrestrial_solar.csv"
+        )))
     });
     &*SPECTRUM
 }
 
-pub fn ozone_absorption_coeff_sea_level() -> &'static impl Spectrum {
-    static SPECTRUM: LazyLock<PiecewiseLinearSpectrum> = LazyLock::new(|| {
-        PiecewiseLinearSpectrum::from_csv(include_str!(
+pub fn ozone_absorption_coeff_sea_level() -> &'static TabulatedSpectrum {
+    static SPECTRUM: LazyLock<TabulatedSpectrum> = LazyLock::new(|| {
+        TabulatedSpectrum::from_spectrum(PiecewiseLinearSpectrum::from_csv(include_str!(
             "pure-ozone-absorption-coeff-sea-level-serdyuchenko.csv"
-        ))
+        )))
     });
     &*SPECTRUM
 }

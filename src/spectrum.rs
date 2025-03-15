@@ -5,6 +5,8 @@ use std::sync::LazyLock;
 use glam::{DMat3, DVec3, DVec4, FloatExt};
 use ordered_float::OrderedFloat;
 
+use crate::random::Tabulated1DFunction;
+
 pub mod physical;
 #[allow(unused)]
 pub mod rgb;
@@ -87,6 +89,31 @@ impl Spectrum for PiecewiseLinearSpectrum {
             high_value,
             (lambda - low_lambda) / (high_lambda - low_lambda),
         )
+    }
+}
+
+pub struct TabulatedSpectrum {
+    f: Tabulated1DFunction,
+}
+
+impl TabulatedSpectrum {
+    pub fn from_spectrum(s: impl Spectrum) -> Self {
+        let mut data: Vec<_> = (VISIBLE.start as usize..VISIBLE.end as usize)
+            .map(|wl| s.sample(wl as f64))
+            .collect();
+        TabulatedSpectrum {
+            f: Tabulated1DFunction::new(&data, VISIBLE.start, VISIBLE.end),
+        }
+    }
+
+    pub fn raw(&self) -> &Tabulated1DFunction {
+        &self.f
+    }
+}
+
+impl Spectrum for TabulatedSpectrum {
+    fn sample(&self, lambda: f64) -> f64 {
+        self.f.f(lambda)
     }
 }
 
