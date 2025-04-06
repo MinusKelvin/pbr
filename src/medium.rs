@@ -178,24 +178,51 @@ impl AtmosphereDryAir {
                 * self.ozone_peak_concentration
         }
     }
+
+    fn rayleigh_cross_section(lambdas: DVec4) -> DVec4 {
+        let lm = 2.0 * PI / (lambdas * 1e-9);
+        let lm2 = lm * lm;
+        let lambda_term = lm2 * lm2;
+
+        let n = 1.0002793;
+        let nt = (n * n - 1.0) / (n * n + 2.0);
+        let n_term = nt * nt;
+
+        let r = 2.118e-9;
+        let r2 = r * r;
+        let r_term = r2 * r2 * r2;
+
+        let const_term = 8.0 / 3.0 * PI;
+
+        const_term * n_term * r_term * lambda_term
+    }
 }
 
 impl Medium for AtmosphereDryAir {
     fn majorant(&self, lambdas: DVec4) -> f64 {
-        self.density_coefficient(lambdas).max_element()
+        let peak_rayleigh = Self::rayleigh_cross_section(lambdas) * self.sea_level_air_density;
+        let peak_ozone = (-self.ozone_start_altitude / self.height_scale).exp()
+            * self.sea_level_air_density
+            * self.ozone_peak_concentration
+            * spectrum::physical::ozone_absorption_cross_section().sample_multi(lambdas);
+        (peak_rayleigh + peak_ozone).max_element()
     }
 
     fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
         _ = outgoing;
         let altitude = (pos - self.origin).length() - self.sea_level;
-        let density = (-altitude / self.height_scale).exp();
-        let ozone_absorption = (density * self.sea_level_air_density / 2.504e25)
+        let density = (-altitude / self.height_scale).exp() * self.sea_level_air_density;
+
+        let rayleigh_scattering = density * Self::rayleigh_cross_section(lambdas);
+
+        let ozone_absorption = density
             * self.ozone_concentration(altitude)
-            * spectrum::physical::ozone_absorption_coeff_sea_level().sample_multi(lambdas);
+            * spectrum::physical::ozone_absorption_cross_section().sample_multi(lambdas);
+
         MediumProperties {
             emission: DVec4::ZERO,
             absorption: ozone_absorption,
-            scattering: self.density_coefficient(lambdas) * density,
+            scattering: rayleigh_scattering,
         }
     }
 

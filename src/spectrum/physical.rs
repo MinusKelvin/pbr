@@ -40,10 +40,10 @@ pub fn extraterrestrial_solar_irradiance() -> &'static TabulatedSpectrum {
     &*SPECTRUM
 }
 
-pub fn ozone_absorption_coeff_sea_level() -> &'static TabulatedSpectrum {
+pub fn ozone_absorption_cross_section() -> &'static TabulatedSpectrum {
     static SPECTRUM: LazyLock<TabulatedSpectrum> = LazyLock::new(|| {
         TabulatedSpectrum::from_spectrum(PiecewiseLinearSpectrum::from_csv(include_str!(
-            "pure-ozone-absorption-coeff-sea-level-serdyuchenko.csv"
+            "ozone-absorption-cross-section-serdyuchenko.csv"
         )))
     });
     &*SPECTRUM

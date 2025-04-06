@@ -209,11 +209,13 @@ impl App {
                         if self.images.len() > 1 {
                             let changed =
                                 Slider::new(&mut self.selected, 0..=self.images.len() - 1)
+                                    .drag_value_speed(0.1)
                                     .ui(ui)
                                     .changed();
                             if changed {
                                 resize |= true;
                                 self.tonemappers[self.selected].refresh();
+                                self.window.set_title(&self.images[self.selected].0);
                             }
                         }
 
