@@ -196,7 +196,7 @@ pub fn path_trace(
     radiance
 }
 
-fn transmittance<'a>(
+pub fn transmittance<'a>(
     scene: &'a Scene,
     mut pos: DVec3,
     dir: DVec3,

@@ -12,7 +12,7 @@ use random::Tabulated1DFunction;
 use rayon::prelude::*;
 use scene::Scene;
 use spectrum::physical::cie_xyz_absolute;
-use spectrum::VISIBLE;
+use spectrum::{Spectrum, VISIBLE};
 
 mod brdf;
 mod bvh;
@@ -43,9 +43,60 @@ struct Options {
 fn main() {
     let opt = Options::parse();
 
-    let (scene, camera, looking, camera_medium) =
-        scene_description::atmosphere_scene(opt.time);
-        // scene_description::load();
+    let (scene, camera, looking, camera_medium) = scene_description::atmosphere_scene(opt.time);
+    // scene_description::load();
+
+    // let mut pixel = Pixel::default();
+    // for _ in 0..100000 {
+    //     let random = thread_rng().gen_range(0.0..1.0);
+    //     let stratified = (DVec4::splat(random) + DVec4::new(0.0, 0.25, 0.5, 0.75)) % 1.0;
+    //     let stratified = DVec4::splat(stratified.x);
+    //     let lambdas = stratified.map(sample_wavelengths);
+    //     let pdf = lambdas.map(wavelength_pdf);
+
+    //     let Some((light, l_pdf)) = scene.sample_light(camera, lambdas, thread_rng().gen()) else {
+    //         unreachable!()
+    //     };
+    //     let sample = light.sample(camera, lambdas, thread_rng().gen());
+
+    //     let transmittance = 4.0 * DVec4::X * path_trace::transmittance(
+    //         &scene,
+    //         camera,
+    //         sample.dir,
+    //         lambdas,
+    //         true,
+    //         &camera_medium,
+    //         sample.dist,
+    //     );
+    //     let radiance = sample.emission * transmittance / l_pdf;
+
+    //     let mut value = DVec3::ZERO;
+    //     for i in 0..4 {
+    //         value += (radiance[i] / pdf[i] / 4.0) * spectrum::lambda_to_xyz_absolute(lambdas[i]);
+    //     }
+
+    //     pixel.accumulate_sample(value);
+    // }
+    // dbg!(pixel.mean);
+    // dbg!((pixel.sterr_sq().element_sum() / 3.0).sqrt());
+    // return;
+
+    // let mut film = Film::new(1000, 1);
+    // film.par_iter_mut().for_each(|(x, _, p)| {
+    //     let spectrum = spectrum::physical::Blackbody {
+    //         temperature: (x as f64 + 0.5) * 10.0,
+    //     };
+
+    //     for _ in 0..10000 {
+    //         let lambda = sample_wavelengths(thread_rng().gen_range(0.0..1.0));
+    //         let pdf = wavelength_pdf(lambda);
+    //         p.accumulate_sample(
+    //             spectrum::lambda_to_xyz_absolute(lambda) * spectrum.sample(lambda) / pdf,
+    //         );
+    //     }
+    // });
+    // film.save_raw("blackbody.exr");
+    // return;
 
     let mut film = Film::new(opt.width, opt.height);
 
@@ -240,7 +291,7 @@ fn render(
             } else {
                 let x = x as f64 + thread_rng().gen::<f64>() - width as f64 / 2.0;
                 let y = y as f64 + thread_rng().gen::<f64>() - height as f64 / 2.0;
-                let v = DVec3::new(x / height as f64 * fov, -y / height as f64 * fov, -1.0);
+                let v = DVec3::new(x / height as f64 * fov, -y / height as f64 * fov, 1.0);
                 d = looking * v.normalize();
             }
 

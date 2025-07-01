@@ -154,6 +154,7 @@ pub struct AtmosphereDryAir {
     pub ozone_peak_altitude: f64,
     pub ozone_peak_concentration: f64,
     pub ozone_height_scale: f64,
+    pub min_ozone_concentration: f64,
 }
 
 impl AtmosphereDryAir {
@@ -168,7 +169,7 @@ impl AtmosphereDryAir {
     }
 
     fn ozone_concentration(&self, h: f64) -> f64 {
-        if h < self.ozone_start_altitude {
+        let conc = if h < self.ozone_start_altitude {
             0.0
         } else if h < self.ozone_peak_altitude {
             (h - self.ozone_start_altitude) / (self.ozone_peak_altitude - self.ozone_start_altitude)
@@ -176,7 +177,8 @@ impl AtmosphereDryAir {
         } else {
             (-(h - self.ozone_peak_altitude) / self.ozone_height_scale).exp()
                 * self.ozone_peak_concentration
-        }
+        };
+        conc.max(self.min_ozone_concentration)
     }
 
     fn rayleigh_cross_section(lambdas: DVec4) -> DVec4 {
@@ -205,7 +207,10 @@ impl Medium for AtmosphereDryAir {
             * self.sea_level_air_density
             * self.ozone_peak_concentration
             * spectrum::physical::ozone_absorption_cross_section().sample_multi(lambdas);
-        (peak_rayleigh + peak_ozone).max_element()
+        let sea_level_ozone = self.sea_level_air_density
+            * self.min_ozone_concentration
+            * spectrum::physical::ozone_absorption_cross_section().sample_multi(lambdas);
+        (peak_rayleigh + peak_ozone.max(sea_level_ozone)).max_element()
     }
 
     fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
@@ -240,13 +245,7 @@ pub struct AtmosphereAerosols {
     pub sea_level_density: f64,
     pub height_scale: f64,
     pub max_height: f64,
-}
-
-impl AtmosphereAerosols {
-    const PHASE: Draine = Draine {
-        alpha: 1.0,
-        g: 0.76,
-    };
+    pub phase: Draine,
 }
 
 impl Medium for AtmosphereAerosols {
@@ -269,16 +268,16 @@ impl Medium for AtmosphereAerosols {
 
     fn phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
         _ = pos;
-        Self::PHASE.f(incoming, outgoing, lambdas)
+        self.phase.f(incoming, outgoing, lambdas)
     }
 
     fn sample_phase(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4, random: DVec3) -> DVec3 {
         _ = pos;
-        Self::PHASE.sample(outgoing, lambdas, random)
+        self.phase.sample(outgoing, lambdas, random)
     }
 
     fn pdf_phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> f64 {
         _ = pos;
-        Self::PHASE.pdf(incoming, outgoing, lambdas)
+        self.phase.pdf(incoming, outgoing, lambdas)
     }
 }

@@ -12,6 +12,7 @@ use crate::medium::{
     AtmosphereAerosols, AtmosphereDryAir, CombinedMedium, Medium, TestMedium, Vacuum,
 };
 use crate::objects::{SetMaterial, Sphere, Transform, Triangle, VoxelOctree};
+use crate::phase::Draine;
 use crate::scene::Scene;
 use crate::spectrum::physical::extraterrestrial_solar_irradiance;
 use crate::spectrum::{AmplifiedSpectrum, ConstantSpectrum, PiecewiseLinearSpectrum};
@@ -346,18 +347,23 @@ pub fn atmosphere_scene(time: f64) -> (Scene, DVec3, DMat3, impl Medium) {
             origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),
             sea_level: PLANET_RADIUS,
             height_scale: 8000.0,
-            sea_level_air_density: 2.504e25,
+            sea_level_air_density: 2.504e25 * 0.3,
             ozone_start_altitude: 12_000.0,
             ozone_peak_altitude: 32_000.0,
             ozone_peak_concentration: 8e-6,
             ozone_height_scale: 15_000.0,
+            min_ozone_concentration: 30e-9,
         },
         m2: AtmosphereAerosols {
             origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),
             sea_level: PLANET_RADIUS,
             height_scale: 1_200.0,
-            sea_level_density: 1e-5,
+            sea_level_density: 1e-6,
             max_height: 20_000.0,
+            phase: Draine {
+                alpha: 1.0,
+                g: 0.85,
+            },
         },
     };
 
@@ -405,7 +411,7 @@ pub fn atmosphere_scene(time: f64) -> (Scene, DVec3, DMat3, impl Medium) {
     ));
 
     let axis_tilt = 0.41;
-    let time_of_year: f64 = 0.0;
+    let time_of_year: f64 = 0.0; //0.3068;
     let latitude: f64 = 38.0f64.to_radians();
 
     let celestial_pole = DVec3::new(0.0, latitude.sin(), latitude.cos());
@@ -414,22 +420,29 @@ pub fn atmosphere_scene(time: f64) -> (Scene, DVec3, DMat3, impl Medium) {
     let sun_noon_pos = DVec3::new(0.0, local_sun_angle.sin(), local_sun_angle.cos());
 
     scene.add_light(DistantDiskLight::from_irradiance(
-        DQuat::from_axis_angle(celestial_pole, (time - 12.0) / 12.0 * PI) * sun_noon_pos,
+        dbg!(DQuat::from_axis_angle(celestial_pole, (time - 12.0) / 12.0 * PI) * sun_noon_pos),
         0.268f64.to_radians().cos(),
         extraterrestrial_solar_irradiance(),
     ));
 
-    scene.add_light(DistantDiskLight {
-        emission: AmplifiedSpectrum {
-            factor: 0.06,
-            s: extraterrestrial_solar_irradiance(),
-        },
-        dir: DQuat::from_axis_angle(celestial_pole, time / 12.0 * PI) * sun_noon_pos,
-        cos_radius: 0.268f64.to_radians().cos(),
-    });
+    // scene.add_light(DistantDiskLight {
+    //     emission: AmplifiedSpectrum {
+    //         factor: 0.06,
+    //         s: extraterrestrial_solar_irradiance(),
+    //     },
+    //     dir: DQuat::from_axis_angle(celestial_pole, time / 12.0 * PI) * sun_noon_pos,
+    //     cos_radius: 0.268f64.to_radians().cos(),
+    // });
 
-    let looking = DMat3::from_euler(EulerRot::YXZ, -PI / 2.0, 0.2, 0.0);
+    let looking = DMat3::from_euler(EulerRot::YXZ, PI / 2.0, 0.2, 0.0);
     let camera = DVec3::new(-3701.4, 455.5, 1999.2);
+    // let camera = DVec3::new(0.0, 1.0, 0.0);
+
+    // let looking = DMat3::from_euler(EulerRot::YXZ, -10.914795, 0.08500001, 0.0);
+    // let camera = DVec3::new(0.23460676, 0.01720072, 0.32080263);
+
+    // let looking = DMat3::from_euler(EulerRot::YXZ, -4.639654, 0.3849998, 0.0);
+    // let camera = DVec3::new(0.87864524, 0.27254108, 0.158398);
 
     (scene, camera, looking, atmosphere)
 }
