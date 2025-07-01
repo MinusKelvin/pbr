@@ -9,12 +9,12 @@ use std::sync::Arc;
 
 use egui::{Slider, Ui, Widget};
 use egui_setup::EguiSetup;
-use glam::{Vec3, Vec4};
+use glam::{Vec2, Vec3, Vec4};
 use tonemap::TonemapOptions;
 use viewer::Viewer;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::WindowEvent;
+use winit::event::{MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::window::{Window, WindowAttributes, WindowId};
 
@@ -38,6 +38,9 @@ struct App {
     mpos: Option<(usize, usize)>,
 
     window: Arc<Window>,
+
+    panning: bool,
+    last_pos: Vec2,
 }
 
 type InitArgs = (
@@ -147,6 +150,9 @@ impl App {
             mpos: None,
 
             window,
+
+            panning: false,
+            last_pos: Vec2::ZERO,
         }
     }
 
@@ -179,6 +185,14 @@ impl App {
                     .request_inner_size(PhysicalSize::new(self.config.width, self.config.height));
             }
             WindowEvent::CursorMoved { position, .. } => {
+                let p = Vec2::new(position.x as f32, position.y as f32);
+                if self.panning {
+                    let d = p - self.last_pos;
+                    self.viewer.yaw -= d.x * 0.004 / self.scale;
+                    self.viewer.pitch -= d.y * 0.004 / self.scale;
+                }
+                self.last_pos = p;
+
                 let x = position.x / self.config.width as f64
                     * self.images[self.selected].1.width as f64;
                 let y = position.y / self.config.height as f64
@@ -189,6 +203,11 @@ impl App {
                     && y < self.images[self.selected].1.height as f64;
                 self.mpos = in_bounds.then(|| (x as usize, y as usize));
             }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => self.panning = state.is_pressed(),
             WindowEvent::RedrawRequested => match self.surface.get_current_texture() {
                 Ok(frame) => {
                     let output = frame.texture.create_view(&Default::default());
@@ -260,7 +279,7 @@ impl App {
                             occlusion_query_set: None,
                         });
 
-                        self.viewer.render(&mut rp);
+                        self.viewer.render(&self.queue, &mut rp);
 
                         self.egui.composite(&mut rp);
                     }

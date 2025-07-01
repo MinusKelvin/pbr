@@ -1,4 +1,5 @@
-use glam::Vec4;
+use bytemuck::{Pod, Zeroable};
+use glam::{EulerRot, Mat3, Vec3, Vec4};
 
 use crate::Image;
 
@@ -7,8 +8,18 @@ pub struct Viewer {
     shader: wgpu::ShaderModule,
     pipeline: wgpu::RenderPipeline,
     bg: wgpu::BindGroup,
+    uniform_buffer: wgpu::Buffer,
 
     image: wgpu::Texture,
+
+    pub yaw: f32,
+    pub pitch: f32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct Uniforms {
+    rot: [Vec4; 3],
 }
 
 impl Viewer {
@@ -18,7 +29,19 @@ impl Viewer {
         width: u32,
         height: u32,
     ) -> Self {
-        let shader = device.create_shader_module(wgpu::include_wgsl!("viewer_blit.wgsl"));
+        let spherical = width == height;
+
+        let shader = match spherical {
+            true => device.create_shader_module(wgpu::include_wgsl!("viewer_sphere.wgsl")),
+            false => device.create_shader_module(wgpu::include_wgsl!("viewer_blit.wgsl")),
+        };
+
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("view uniform"),
+            size: std::mem::size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: None,
@@ -52,6 +75,16 @@ impl Viewer {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
             ],
@@ -94,6 +127,10 @@ impl Viewer {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
             ],
         });
 
@@ -102,7 +139,10 @@ impl Viewer {
             shader,
             pipeline,
             bg,
+            uniform_buffer,
             image,
+            yaw: 0.0,
+            pitch: 0.0,
         }
     }
 
@@ -150,7 +190,18 @@ impl Viewer {
         self.pipeline = Self::create_pipeline(device, &self.layout, &self.shader, target_format);
     }
 
-    pub fn render(&mut self, rp: &mut wgpu::RenderPass) {
+    pub fn render(&mut self, queue: &wgpu::Queue, rp: &mut wgpu::RenderPass) {
+        let matrix = Mat3::from_euler(EulerRot::YXZ, self.yaw, self.pitch, 0.0);
+        queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::bytes_of(&Uniforms {
+                rot: matrix
+                    .to_cols_array_2d()
+                    .map(|c| Vec3::from_array(c).extend(0.0)),
+            }),
+        );
+
         rp.set_pipeline(&self.pipeline);
         rp.set_bind_group(0, &self.bg, &[]);
         rp.draw(0..4, 0..1);
