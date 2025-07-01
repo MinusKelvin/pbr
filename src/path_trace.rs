@@ -41,7 +41,8 @@ pub fn path_trace(
             let majorant = match secondary_terminated {
                 true => medium.majorant(lambdas.xxxx()),
                 false => medium.majorant(lambdas),
-            };
+            }
+            .max_element();
             let mut t = 0.0;
             loop {
                 let dt = -(1.0 - thread_rng().gen::<f64>()).ln() / majorant;
@@ -222,7 +223,8 @@ pub fn transmittance<'a>(
             let majorant = match secondary_terminated {
                 true => medium.majorant(lambdas.xxxx()),
                 false => medium.majorant(lambdas),
-            };
+            }
+            .max_element();
             let mut t = 0.0;
             loop {
                 let dt = -(1.0 - thread_rng().gen::<f64>()).ln() / majorant;

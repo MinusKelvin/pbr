@@ -13,7 +13,7 @@ pub struct MediumProperties {
 }
 
 pub trait Medium: Send + Sync {
-    fn majorant(&self, lambdas: DVec4) -> f64;
+    fn majorant(&self, lambdas: DVec4) -> DVec4;
 
     fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties;
 
@@ -38,9 +38,9 @@ pub trait Medium: Send + Sync {
 pub struct Vacuum;
 
 impl Medium for Vacuum {
-    fn majorant(&self, lambdas: DVec4) -> f64 {
+    fn majorant(&self, lambdas: DVec4) -> DVec4 {
         _ = lambdas;
-        0.0
+        DVec4::ZERO
     }
 
     fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
@@ -69,7 +69,7 @@ pub struct CombinedMedium<M1, M2> {
 }
 
 impl<M1: Medium, M2: Medium> Medium for CombinedMedium<M1, M2> {
-    fn majorant(&self, lambdas: DVec4) -> f64 {
+    fn majorant(&self, lambdas: DVec4) -> DVec4 {
         self.m1.majorant(lambdas) + self.m2.majorant(lambdas)
     }
 
@@ -123,9 +123,8 @@ pub struct TestMedium<Sa, Se, Ss> {
 }
 
 impl<Sa: Spectrum, Se: Spectrum, Ss: Spectrum> Medium for TestMedium<Sa, Se, Ss> {
-    fn majorant(&self, lambdas: DVec4) -> f64 {
-        (self.absorption.sample_multi(lambdas) + self.scattering.sample_multi(lambdas))
-            .max_element()
+    fn majorant(&self, lambdas: DVec4) -> DVec4 {
+        self.absorption.sample_multi(lambdas) + self.scattering.sample_multi(lambdas)
     }
 
     fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
@@ -201,7 +200,7 @@ impl AtmosphereDryAir {
 }
 
 impl Medium for AtmosphereDryAir {
-    fn majorant(&self, lambdas: DVec4) -> f64 {
+    fn majorant(&self, lambdas: DVec4) -> DVec4 {
         let peak_rayleigh = Self::rayleigh_cross_section(lambdas) * self.sea_level_air_density;
         let peak_ozone = (-self.ozone_start_altitude / self.height_scale).exp()
             * self.sea_level_air_density
@@ -210,7 +209,7 @@ impl Medium for AtmosphereDryAir {
         let sea_level_ozone = self.sea_level_air_density
             * self.min_ozone_concentration
             * spectrum::physical::ozone_absorption_cross_section().sample_multi(lambdas);
-        (peak_rayleigh + peak_ozone.max(sea_level_ozone)).max_element()
+        peak_rayleigh + peak_ozone.max(sea_level_ozone)
     }
 
     fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
@@ -249,9 +248,9 @@ pub struct AtmosphereAerosols {
 }
 
 impl Medium for AtmosphereAerosols {
-    fn majorant(&self, lambdas: DVec4) -> f64 {
+    fn majorant(&self, lambdas: DVec4) -> DVec4 {
         _ = lambdas;
-        self.sea_level_density
+        DVec4::splat(self.sea_level_density)
     }
 
     fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
