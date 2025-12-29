@@ -30,7 +30,7 @@ const TONEMAPPERS: &[Tonemapper] = &[Tonemapper::None, Tonemapper::Krawczyk2005]
 
 impl TonemapOptions {
     pub fn new(image: Arc<Image<Vec3>>, proxy: EventLoopProxy<Image<Vec4>>) -> TonemapOptions {
-        let mut this = TonemapOptions {
+        TonemapOptions {
             none: none::Options::new(&image),
             krawczyk_2005: krawczyk_2005::Options::new(&image),
 
@@ -38,9 +38,7 @@ impl TonemapOptions {
             image,
             needs_update: true,
             proxy,
-        };
-        this.process();
-        this
+        }
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {

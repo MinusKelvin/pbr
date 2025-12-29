@@ -149,7 +149,7 @@ impl App {
         );
         let egui = EguiSetup::new(&device, window.clone(), size, config.format);
 
-        App {
+        let mut this = App {
             queue,
             device,
             surface,
@@ -171,7 +171,9 @@ impl App {
 
             panning: false,
             last_pos: Vec2::ZERO,
-        }
+        };
+        this.tonemappers[0].refresh();
+        this
     }
 
     fn user_event(&mut self, updated: Image<Vec4>) {
