@@ -7,6 +7,7 @@ use std::ops::{Index, IndexMut};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use clap::Parser;
 use egui::{Slider, Ui, Widget};
 use egui_setup::EguiSetup;
 use glam::{Vec2, Vec3, Vec4};
@@ -43,16 +44,33 @@ struct App {
     last_pos: Vec2,
 }
 
+#[derive(Parser)]
+struct Options {
+    #[arg(long, short)]
+    tonemap: Option<String>,
+    #[arg(long)]
+    adapting_luminance: Option<f32>,
+    #[arg(required = true)]
+    imgs: Vec<PathBuf>,
+}
+
 type InitArgs = (
     EventLoopProxy<Image<Vec4>>,
+    Options,
     Vec<(String, Arc<Image<Vec3>>, PathBuf)>,
 );
 
 impl App {
-    async fn new(el: &ActiveEventLoop, (proxy, images): InitArgs) -> Self {
+    async fn new(el: &ActiveEventLoop, (proxy, options, images): InitArgs) -> Self {
         let tonemappers = images
             .iter()
-            .map(|(_, img, _)| TonemapOptions::new(img.clone(), proxy.clone()))
+            .map(|(_, img, _)| {
+                let mut opt = TonemapOptions::new(img.clone(), proxy.clone());
+                if let Some(al) = options.adapting_luminance {
+                    opt.set_adapting_luminance(al);
+                }
+                opt
+            })
             .collect();
 
         let window = el
@@ -368,50 +386,52 @@ impl<T> IndexMut<(usize, usize)> for Image<T> {
 }
 
 fn main() {
-    let result = (|| -> Result<_, Box<dyn Error>> {
-        let mut iter = std::env::args_os().skip(1).peekable();
-        let mode = iter
-            .next_if(|s| s.to_str().is_some_and(|s| s.starts_with("--")))
-            .and_then(|s| s.to_str().map(|s| s.to_string()));
+    let mut options = Options::parse();
 
-        let mut images = vec![];
-        for path in iter {
-            let path = Path::new(&path);
-            use exr::prelude::*;
-            let image = read()
-                .no_deep_data()
-                .largest_resolution_level()
-                .rgb_channels(
-                    |size, _| crate::Image::from_pixel(size.0, size.1, Vec3::ZERO),
-                    |pixels, xy, p| pixels[(xy.0, xy.1)] = Vec3::from(p),
-                )
-                .first_valid_layer()
-                .all_attributes()
-                .from_file(path)?;
-            let image = image.layer_data.channel_data.pixels;
+    let mut images = vec![];
+    for path in options.imgs.drain(..) {
+        use exr::prelude::*;
+        let image = read()
+            .no_deep_data()
+            .largest_resolution_level()
+            .rgb_channels(
+                |size, _| crate::Image::from_pixel(size.0, size.1, Vec3::ZERO),
+                |pixels, xy, p| pixels[(xy.0, xy.1)] = Vec3::from(p),
+            )
+            .first_valid_layer()
+            .all_attributes()
+            .from_file(&path)
+            .unwrap();
+        let image = image.layer_data.channel_data.pixels;
 
-            images.push((
-                path.file_stem().unwrap().to_string_lossy().into_owned(),
-                Arc::new(image),
-                path.to_owned(),
-            ));
-        }
-        if images.is_empty() {
-            eprintln!("At least one image must be provided");
-            std::process::exit(1);
-        }
-        Ok((mode, images))
-    })();
+        images.push((
+            path.file_stem().unwrap().to_string_lossy().into_owned(),
+            Arc::new(image),
+            path.to_owned(),
+        ));
+    }
+    if images.is_empty() {
+        eprintln!("At least one image must be provided");
+        std::process::exit(1);
+    }
 
-    let (mode, images) = result.unwrap();
-
-    if let Some(mapper) = mode {
+    if let Some(mapper) = options.tonemap {
         for (_, image, path) in images {
             let result = match &*mapper {
-                "--krawczyk2005" | "--tonemap" => {
-                    tonemap::krawczyk_2005::Options::new(&image).process(&image)
+                "krawczyk2005" | "default" => {
+                    let mut mapper = tonemap::krawczyk_2005::Options::new(&image);
+                    if let Some(al) = options.adapting_luminance {
+                        mapper.set_adapting_luminance(al);
+                    }
+                    mapper.process(&image)
                 }
-                "--none" => tonemap::none::Options::new(&image).process(&image),
+                "none" => {
+                    let mut mapper = tonemap::none::Options::new(&image);
+                    if let Some(al) = options.adapting_luminance {
+                        mapper.set_adapting_luminance(al);
+                    }
+                    mapper.process(&image)
+                }
                 _ => {
                     eprintln!("unrecognized tonemapper: {mapper}");
                     std::process::exit(1);
@@ -437,7 +457,7 @@ fn main() {
 
     el.run_app(&mut LateinitApp {
         app: None,
-        args: Some((proxy, images)),
+        args: Some((proxy, options, images)),
     })
     .unwrap();
 }

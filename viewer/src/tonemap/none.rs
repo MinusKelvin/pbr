@@ -38,4 +38,8 @@ impl Options {
             super::xyz_to_srgb_linear(xyz).extend(1.0)
         })
     }
+
+    pub fn set_adapting_luminance(&mut self, adapting_luminance: f32) {
+        self.avg_luminance.value = adapting_luminance;
+    }
 }

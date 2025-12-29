@@ -61,4 +61,9 @@ impl Options {
             rgb_l.extend(1.0)
         })
     }
+
+    pub fn set_adapting_luminance(&mut self, adapting_luminance: f32) {
+        self.adapting_luminance.value = adapting_luminance;
+        self.key_value.value = 1.03 - 2.0 / (2.0 + (adapting_luminance + 1.0).log10());
+    }
 }

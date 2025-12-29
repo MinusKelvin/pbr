@@ -72,6 +72,11 @@ impl TonemapOptions {
         self.process();
     }
 
+    pub fn set_adapting_luminance(&mut self, adapting_luminance: f32) {
+        self.krawczyk_2005.set_adapting_luminance(adapting_luminance);
+        self.none.set_adapting_luminance(adapting_luminance);
+    }
+
     fn process(&mut self) {
         let proxy = self.proxy.clone();
         let image = self.image.clone();

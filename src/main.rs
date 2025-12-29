@@ -38,13 +38,17 @@ struct Options {
     samples: u32,
     #[arg(long, default_value_t = 6.0, allow_negative_numbers(true))]
     time: f64,
+    #[arg(long, default_value_t = 10.0)]
+    altitude: f64,
 }
 
 fn main() {
     let opt = Options::parse();
 
-    let (scene, camera, looking, camera_medium) = scene_description::atmosphere_scene(opt.time);
-    // scene_description::load();
+    let (scene, camera, looking, camera_medium) =
+        scene_description::atmosphere_scene(opt.time, opt.altitude);
+        // scene_description::load();
+        // scene_description::simple_volume_scene();
 
     // let mut pixel = Pixel::default();
     // for _ in 0..100000 {
@@ -280,7 +284,7 @@ fn render(
 ) {
     let width = film.width;
     let height = film.height;
-    let fov = 2.0;
+    let fov = 1.0;
     film.par_iter_mut().for_each(|(x, y, pixel)| {
         for _ in 0..samples {
             let d;

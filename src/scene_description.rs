@@ -270,9 +270,9 @@ pub fn simple_volume_scene() -> (Scene, DVec3, DMat3, impl Medium) {
     let mut scene = Scene::new();
 
     scene.add(Triangle {
-        a: DVec3::new(-10.0, 0.0, -10.0),
-        b: DVec3::new(10.0, 0.0, 10.0),
-        c: DVec3::new(10.0, 0.0, -10.0),
+        a: DVec3::new(-100.0, -1.5, -100.0),
+        b: DVec3::new(100.0, -1.5, 100.0),
+        c: DVec3::new(100.0, -1.5, -100.0),
         a_n: DVec3::Y,
         b_n: DVec3::Y,
         c_n: DVec3::Y,
@@ -286,9 +286,9 @@ pub fn simple_volume_scene() -> (Scene, DVec3, DMat3, impl Medium) {
         },
     });
     scene.add(Triangle {
-        a: DVec3::new(10.0, 0.0, 10.0),
-        b: DVec3::new(-10.0, 0.0, -10.0),
-        c: DVec3::new(-10.0, 0.0, 10.0),
+        a: DVec3::new(100.0, -1.5, 100.0),
+        b: DVec3::new(-100.0, -1.5, -100.0),
+        c: DVec3::new(-100.0, -1.5, 100.0),
         a_n: DVec3::Y,
         b_n: DVec3::Y,
         c_n: DVec3::Y,
@@ -301,42 +301,65 @@ pub fn simple_volume_scene() -> (Scene, DVec3, DMat3, impl Medium) {
             exit_medium: Vacuum,
         },
     });
+    const STRENGTH: f64 = 500.0;
     scene.add(Sphere {
         origin: DVec3::ZERO,
         radius: 1.0,
         material: Material {
             emission: spectrum::ZERO,
-            brdf: (),
+            // brdf: (),
+            brdf: LambertianBrdf {
+                albedo: PiecewiseLinearSpectrum::from_points(&[(360.0, 0.0), (830.0, 1.0)]),
+            },
+            // brdf: ThinDielectricBrdf {
+            //     ior: ConstantSpectrum(1.3),
+            // },
             enter_medium: TestMedium {
-                absorption: PiecewiseLinearSpectrum::from_points(&[(360.0, 5.0), (830.0, 0.0)]),
+                absorption: PiecewiseLinearSpectrum::from_points(&[
+                    (360.0, STRENGTH),
+                    (830.0, 0.0),
+                ]),
                 emission: spectrum::ZERO,
-                scattering: PiecewiseLinearSpectrum::from_points(&[(360.0, 0.0), (830.0, 5.0)]),
+                scattering: PiecewiseLinearSpectrum::from_points(&[
+                    (360.0, 0.0),
+                    (830.0, STRENGTH),
+                ]),
                 // scattering: spectrum::ZERO,
             },
             exit_medium: Vacuum,
         },
     });
 
-    scene.add_light(DistantDiskLight {
-        emission: AmplifiedSpectrum {
+    scene.add_light(DistantDiskLight::from_irradiance(
+        DVec3::new(-1.0, 0.5, -0.3).normalize(),
+        0.268f64.to_radians().cos(),
+        AmplifiedSpectrum {
             // factor: 1.0,
-            factor: 25.0,
+            factor: 10000.0,
             // factor: 50000.0,
             s: spectrum::physical::cie_d65_1nit(),
         },
-        dir: DVec3::new(-1.0, 0.5, -0.3).normalize(),
-        // cos_radius: -1.0,
-        cos_radius: 10.0f64.to_radians().cos(),
-        // cos_radius: 0.268f64.to_radians().cos(),
-    });
+    ));
+    // scene.add_light(DistantDiskLight {
+    //     emission: AmplifiedSpectrum {
+    //         // factor: 1.0,
+    //         factor: 25.0,
+    //         // factor: 50000.0,
+    //         s: spectrum::physical::cie_d65_1nit(),
+    //     },
+    //     dir: DVec3::new(-1.0, 0.5, -0.3).normalize(),
+    //     // cos_radius: -1.0,
+    //     cos_radius: 10.0f64.to_radians().cos(),
+    //     // cos_radius: 0.268f64.to_radians().cos(),
+    // });
 
-    let looking = DMat3::from_euler(EulerRot::YXZ, -0.4, -0.4, 0.0);
-    let camera = looking * DVec3::new(0.0, 0.0, 1.5);
+    let looking = DMat3::from_euler(EulerRot::YXZ, 0.3, 0.5, 0.0);
+    let camera = looking * DVec3::new(0.0, 0.0, -3.0);
 
     (scene, camera, looking, Vacuum)
 }
 
-pub fn atmosphere_scene(time: f64) -> (Scene, DVec3, DMat3, impl Medium) {
+pub fn atmosphere_scene(time: f64, altitude: f64) -> (Scene, DVec3, DMat3, impl Medium) {
     let mut scene = Scene::new();
 
     const PLANET_RADIUS: f64 = 6371000.0;
@@ -347,18 +370,18 @@ pub fn atmosphere_scene(time: f64) -> (Scene, DVec3, DMat3, impl Medium) {
             origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),
             sea_level: PLANET_RADIUS,
             height_scale: 8000.0,
-            sea_level_air_density: 2.504e25 * 0.3,
+            sea_level_air_density: 2.504e25,
             ozone_start_altitude: 12_000.0,
             ozone_peak_altitude: 32_000.0,
-            ozone_peak_concentration: 8e-6,
+            ozone_peak_concentration: 5e-6,
             ozone_height_scale: 15_000.0,
-            min_ozone_concentration: 30e-9,
+            min_ozone_concentration: 10e-9,
         },
         m2: AtmosphereAerosols {
             origin: DVec3::new(0.0, -PLANET_RADIUS, 0.0),
             sea_level: PLANET_RADIUS,
             height_scale: 1_200.0,
-            sea_level_density: 1e-6,
+            sea_level_density: 1e-5,
             max_height: 20_000.0,
             phase: Draine {
                 alpha: 1.0,
@@ -410,9 +433,9 @@ pub fn atmosphere_scene(time: f64) -> (Scene, DVec3, DMat3, impl Medium) {
         ),
     ));
 
-    let axis_tilt = 0.41;
-    let time_of_year: f64 = 0.0; //0.3068;
-    let latitude: f64 = 38.0f64.to_radians();
+    let axis_tilt = 0.40909;
+    let time_of_year: f64 = 0.8;//PI/2.0; //0.086; //0.3068;
+    let latitude: f64 = -37.8f64.to_radians();
 
     let celestial_pole = DVec3::new(0.0, latitude.sin(), latitude.cos());
     let celestial_sun_angle = PI / 2.0 - time_of_year.cos() * axis_tilt;
@@ -434,15 +457,20 @@ pub fn atmosphere_scene(time: f64) -> (Scene, DVec3, DMat3, impl Medium) {
     //     cos_radius: 0.268f64.to_radians().cos(),
     // });
 
-    let looking = DMat3::from_euler(EulerRot::YXZ, PI / 2.0, 0.2, 0.0);
-    let camera = DVec3::new(-3701.4, 455.5, 1999.2);
-    // let camera = DVec3::new(0.0, 1.0, 0.0);
+    let looking = DMat3::from_euler(EulerRot::YXZ, 1.2, 0.0, 0.0);
+    let camera = DVec3::new(-3701.4, 455.5+altitude, 1999.2);
+    // let camera = DVec3::new(0.0, altitude, 0.0);
 
     // let looking = DMat3::from_euler(EulerRot::YXZ, -10.914795, 0.08500001, 0.0);
     // let camera = DVec3::new(0.23460676, 0.01720072, 0.32080263);
 
     // let looking = DMat3::from_euler(EulerRot::YXZ, -4.639654, 0.3849998, 0.0);
     // let camera = DVec3::new(0.87864524, 0.27254108, 0.158398);
+
+    let atmosphere = match altitude < ATMOSPHERE_HEIGHT {
+        true => Box::new(atmosphere) as Box<dyn Medium>,
+        false => Box::new(Vacuum),
+    };
 
     (scene, camera, looking, atmosphere)
 }

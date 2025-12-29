@@ -52,7 +52,7 @@ pub fn path_trace(
                 }
 
                 let p = pos + t * dir;
-                let mp = medium.properties(pos, dir, lambdas);
+                let mp = medium.properties(p, dir, lambdas);
                 let pr_absorption = mp.absorption / majorant;
                 let pr_scattering = mp.scattering / majorant;
                 let pr_null = 1.0 - pr_absorption - pr_scattering;

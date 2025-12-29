@@ -34,6 +34,32 @@ pub trait Medium: Send + Sync {
     }
 }
 
+impl Medium for Box<dyn Medium> {
+    fn majorant(&self, lambdas: DVec4) -> DVec4 {
+        (**self).majorant(lambdas)
+    }
+
+    fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {
+        (**self).properties(pos, outgoing, lambdas)
+    }
+
+    fn phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> DVec4 {
+        (**self).phase(pos, incoming, outgoing, lambdas)
+    }
+    
+    fn sample_phase(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4, random: DVec3) -> DVec3 {
+        (**self).sample_phase(pos, outgoing, lambdas, random)
+    }
+    
+    fn pdf_phase(&self, pos: DVec3, incoming: DVec3, outgoing: DVec3, lambdas: DVec4) -> f64 {
+        (**self).pdf_phase(pos, incoming, outgoing, lambdas)
+    }
+    
+    fn participating(&self) -> bool {
+        (**self).participating()
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct Vacuum;
 
