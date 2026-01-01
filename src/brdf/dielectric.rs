@@ -42,8 +42,11 @@ impl<S: Spectrum> Brdf for DielectricBrdf<S> {
             BrdfSample {
                 dir: refracted,
                 pdf: 1.0 - fresnel_reflect.x,
-                f: DVec4::splat(
+                f: DVec4::new(
                     (1.0 - fresnel_reflect.x) / refracted.dot(normal).abs() / (ior.x * ior.x),
+                    0.0,
+                    0.0,
+                    0.0,
                 ),
                 terminate_secondary: true,
                 singular: true,

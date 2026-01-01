@@ -15,7 +15,7 @@ use crate::objects::{SetMaterial, Sphere, Transform, Triangle, VoxelOctree};
 use crate::phase::Draine;
 use crate::scene::Scene;
 use crate::spectrum::physical::extraterrestrial_solar_irradiance;
-use crate::spectrum::{AmplifiedSpectrum, ConstantSpectrum, PiecewiseLinearSpectrum};
+use crate::spectrum::{AmplifiedSpectrum, ConstantSpectrum, PiecewiseLinearSpectrum, ReciprocalSpectrum};
 use crate::{material, plymesh, spectrum};
 
 #[allow(unused)]
@@ -55,35 +55,35 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         },
     )
     .unwrap();
-    let voxel_world = VoxelOctree::load(
-        "world.dat",
-        vec![
-            Arc::new(Material {
-                emission: spectrum::ZERO,
-                brdf: LambertianBrdf {
-                    albedo: ConstantSpectrum(0.5),
-                },
-                enter_medium: (),
-                exit_medium: (),
-            }),
-            Arc::new(Material {
-                emission: spectrum::ZERO,
-                brdf: LambertianBrdf {
-                    albedo: ConstantSpectrum(1.0),
-                },
-                enter_medium: (),
-                exit_medium: (),
-            }),
-            Arc::new(Material {
-                emission: spectrum::ZERO,
-                brdf: LambertianBrdf {
-                    albedo: ConstantSpectrum(0.1),
-                },
-                enter_medium: (),
-                exit_medium: (),
-            }),
-        ],
-    );
+    // let voxel_world = VoxelOctree::load(
+    //     "world.dat",
+    //     vec![
+    //         Arc::new(Material {
+    //             emission: spectrum::ZERO,
+    //             brdf: LambertianBrdf {
+    //                 albedo: ConstantSpectrum(0.5),
+    //             },
+    //             enter_medium: (),
+    //             exit_medium: (),
+    //         }),
+    //         Arc::new(Material {
+    //             emission: spectrum::ZERO,
+    //             brdf: LambertianBrdf {
+    //                 albedo: ConstantSpectrum(1.0),
+    //             },
+    //             enter_medium: (),
+    //             exit_medium: (),
+    //         }),
+    //         Arc::new(Material {
+    //             emission: spectrum::ZERO,
+    //             brdf: LambertianBrdf {
+    //                 albedo: ConstantSpectrum(0.1),
+    //             },
+    //             enter_medium: (),
+    //             exit_medium: (),
+    //         }),
+    //     ],
+    // );
     println!("Took {:.2?} to load models", t.elapsed());
 
     let cb_dragon = dragon_bounds.centroid().with_y(dragon_bounds.min.y);
@@ -100,7 +100,10 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         c_n: DVec3::Y,
         material: Material {
             emission: spectrum::ZERO,
-            brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
+            // brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
+            brdf: LambertianBrdf {
+                albedo: ConstantSpectrum(0.3)
+            },
             enter_medium: Vacuum,
             exit_medium: Vacuum,
         },
@@ -114,7 +117,10 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         c_n: DVec3::Y,
         material: Material {
             emission: spectrum::ZERO,
-            brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
+            // brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
+            brdf: LambertianBrdf {
+                albedo: ConstantSpectrum(0.3)
+            },
             enter_medium: Vacuum,
             exit_medium: Vacuum,
         },
@@ -154,8 +160,8 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
             // brdf: Arc::new(LambertianBrdf {
             //     albedo: DVec3::new(0.25, 0.25, 1.0),
             // }),
-            // brdf: SmoothConductorBrdf::new(material::physical::ior_copper()),
-            brdf: RoughConductorBrdf::new(material::physical::ior_copper(), 0.05),
+            brdf: SmoothConductorBrdf::new(material::physical::ior_copper()),
+            // brdf: RoughConductorBrdf::new(material::physical::ior_copper(), 0.05),
             enter_medium: Vacuum,
             exit_medium: Vacuum,
         },
@@ -187,44 +193,44 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
         radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.3,
         material: Material {
             emission: spectrum::ZERO,
-            // brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
-            brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
+            brdf: SmoothConductorBrdf::new(material::physical::ior_silver()),
+            // brdf: RoughConductorBrdf::new(material::physical::ior_silver(), 0.1),
             enter_medium: Vacuum,
             exit_medium: Vacuum,
         },
     });
-    // scene.add(Sphere {
-    //     origin: DVec3::new(
-    //         (dragon_bounds.max.x - dragon_bounds.min.x) * 0.5,
-    //         (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
-    //         (dragon_bounds.max.z - dragon_bounds.min.z) * 0.8,
-    //     ),
-    //     radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
-    //     material: Material {
-    //         emission: spectrum::ZERO,
-    //         // brdf: DielectricBrdf { ior: material::physical::ior_glass() },
-    //         // enter_medium: Vacuum,
-    //         brdf: ThinDielectricBrdf {
-    //             ior: material::physical::ior_glass(),
-    //         },
-    //         enter_medium: TestMedium {
-    //             absorption: spectrum::ZERO,
-    //             emission: spectrum::ZERO,
-    //             scattering: spectrum::ConstantSpectrum(10.0),
-    //         },
-    //         exit_medium: atmosphere.clone(),
-    //     },
-    // });
     scene.add(Sphere {
-        origin: DVec3::ZERO,
-        radius: 1.0,
+        origin: DVec3::new(
+            (dragon_bounds.max.x - dragon_bounds.min.x) * 0.5,
+            (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
+            (dragon_bounds.max.z - dragon_bounds.min.z) * 0.8,
+        ),
+        radius: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5,
         material: Material {
             emission: spectrum::ZERO,
-            brdf: (),
-            enter_medium: atmosphere.clone(),
-            exit_medium: Vacuum,
+            brdf: DielectricBrdf { ior: material::physical::ior_glass() },
+            enter_medium: Vacuum,
+            // brdf: ThinDielectricBrdf {
+            //     ior: material::physical::ior_glass(),
+            // },
+            // enter_medium: TestMedium {
+            //     absorption: spectrum::ZERO,
+            //     emission: spectrum::ZERO,
+            //     scattering: spectrum::ConstantSpectrum(10.0),
+            // },
+            exit_medium: atmosphere.clone(),
         },
     });
+    // scene.add(Sphere {
+    //     origin: DVec3::ZERO,
+    //     radius: 1.0,
+    //     material: Material {
+    //         emission: spectrum::ZERO,
+    //         brdf: (),
+    //         enter_medium: atmosphere.clone(),
+    //         exit_medium: Vacuum,
+    //     },
+    // });
 
     // scene.add(Sphere {
     //     origin: (dragon_bounds.max.z - dragon_bounds.min.z) * 0.5 * DVec3::Y,
@@ -241,12 +247,36 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
     //     },
     // });
 
-    scene.add(Transform::new(
-        DMat4::from_scale(DVec3::splat(
-            (dragon_bounds.max.z - dragon_bounds.min.z) * 1.5,
-        )),
-        voxel_world,
-    ));
+    // scene.add(Transform::new(
+    //     DMat4::from_scale(DVec3::splat(
+    //         (dragon_bounds.max.z - dragon_bounds.min.z) * 1.5,
+    //     )),
+    //     voxel_world,
+    // ));
+
+    scene.add(SetMaterial {
+        material: Material {
+            emission: spectrum::ZERO,
+            // // brdf: Arc::new(LambertianBrdf {
+            // //     albedo: DVec3::new(0.25, 1.0, 0.25),
+            // // }),
+            // brdf: SmoothConductorBrdf::new(material::physical::ior_gold()),
+            brdf: RoughConductorBrdf::new(material::physical::ior_copper(), 0.05),
+            // brdf: DielectricBrdf {
+            //     ior: material::physical::ior_glass(),
+            // },
+            enter_medium: Vacuum,
+            exit_medium: Vacuum,
+        },
+        obj: Transform::new(
+            DMat4::from_scale_rotation_translation(
+                DVec3::splat(1.0),
+                DQuat::from_axis_angle(DVec3::Y, 0.3),
+                (dragon_bounds.max.z - dragon_bounds.min.z) * DVec3::new(-0.3, 0.0, 0.0) - 1.0 * cb_dragon,
+            ),
+            dragon.clone(),
+        ),
+    });
 
     scene.add_light(DistantDiskLight::from_irradiance(
         DVec3::new(-1.0, 0.5, -0.3).normalize(),
@@ -259,8 +289,8 @@ pub fn load() -> (Scene, DVec3, DMat3, impl Medium) {
 
     let scale = (dragon_bounds.max - dragon_bounds.min).length() * 0.8;
 
-    let looking = DMat3::from_euler(EulerRot::YXZ, -0.4, -0.4, 0.0);
-    let camera = scale * (looking * DVec3::new(0.0, 0.0, 1.0) + DVec3::new(0.0, 0.5, 0.0));
+    let looking = DMat3::from_euler(EulerRot::YXZ, PI-0.4, 0.4, 0.0) * DMat3::from_diagonal(DVec3::new(-1.0, 1.0, 1.0));
+    let camera = scale * (looking * DVec3::new(0.0, 0.0, -2.0) + DVec3::new(0.0, 0.5, 0.0));
 
     (scene, camera, looking, atmosphere)
 }
@@ -434,7 +464,7 @@ pub fn atmosphere_scene(time: f64, altitude: f64) -> (Scene, DVec3, DMat3, impl 
     ));
 
     let axis_tilt = 0.40909;
-    let time_of_year: f64 = 0.8;//PI/2.0; //0.086; //0.3068;
+    let time_of_year: f64 = 1.1;//PI/2.0; //0.086; //0.3068;
     let latitude: f64 = -37.8f64.to_radians();
 
     let celestial_pole = DVec3::new(0.0, latitude.sin(), latitude.cos());
@@ -467,7 +497,7 @@ pub fn atmosphere_scene(time: f64, altitude: f64) -> (Scene, DVec3, DMat3, impl 
     // let looking = DMat3::from_euler(EulerRot::YXZ, -4.639654, 0.3849998, 0.0);
     // let camera = DVec3::new(0.87864524, 0.27254108, 0.158398);
 
-    let atmosphere = match altitude < ATMOSPHERE_HEIGHT {
+    let atmosphere = match camera.y < ATMOSPHERE_HEIGHT {
         true => Box::new(atmosphere) as Box<dyn Medium>,
         false => Box::new(Vacuum),
     };

@@ -52,6 +52,14 @@ impl Scene {
         Some((&*self.lights[i as usize], 1.0 / self.lights.len() as f64))
     }
 
+    pub fn light_pmf(&self, pos: DVec3, lambdas: DVec4, light: &dyn Light) -> f64 {
+        1.0 / self.lights.len() as f64
+    }
+
+    pub fn lights(&self) -> impl Iterator<Item = &dyn Light> {
+        self.lights.iter().map(|l| &**l)
+    }
+
     pub fn light_emission(
         &self,
         pos: DVec3,

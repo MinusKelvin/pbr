@@ -276,7 +276,7 @@ pub struct AtmosphereAerosols {
 impl Medium for AtmosphereAerosols {
     fn majorant(&self, lambdas: DVec4) -> DVec4 {
         _ = lambdas;
-        DVec4::splat(self.sea_level_density)
+        DVec4::splat(self.sea_level_density * 1.1)
     }
 
     fn properties(&self, pos: DVec3, outgoing: DVec3, lambdas: DVec4) -> MediumProperties {

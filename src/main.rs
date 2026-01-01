@@ -27,6 +27,7 @@ mod random;
 mod scene;
 mod scene_description;
 mod spectrum;
+mod vol_trace;
 
 #[derive(clap::Parser)]
 struct Options {
@@ -304,7 +305,8 @@ fn render(
             let lambdas = stratified.map(sample_wavelengths);
             let pdf = lambdas.map(wavelength_pdf);
 
-            let radiance = path_trace::path_trace(scene, camera, d, lambdas, camera_medium);
+            // let radiance = path_trace::path_trace(scene, camera, d, lambdas, camera_medium);
+            let radiance = vol_trace::path_trace(scene, camera, d, lambdas, camera_medium);
             let mut value = DVec3::ZERO;
             for i in 0..4 {
                 value +=

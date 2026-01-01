@@ -180,10 +180,17 @@ pub fn path_trace(
             };
         }
 
-        if throughput.element_sum() < 0.5 || bounces > 20 {
-            if bounces > 20 {
-                bounces = 0;
+        if throughput.max_element() < 1.0 {
+            if thread_rng().gen_bool(1.0 - throughput.max_element()) {
+                break;
+            } else {
+                throughput /= throughput.max_element();
             }
+        }
+
+        // unbiased substitute for max depth
+        if bounces > 20 {
+            bounces = 0;
             if thread_rng().gen_bool(0.5) {
                 break;
             } else {
